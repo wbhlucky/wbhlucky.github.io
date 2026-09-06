@@ -83,7 +83,7 @@
 
       <p class="eyebrow">SOFTWARE ENGINEER · AI AGENT</p>
       <p class="tagline" id="typing">感恩相遇，相遇即缘分。</p>
-      <p class="subline">专注于 AI Agent 与软件开发，记录技术探索与工程实践。</p>
+      <p class="subline" id="subline-typing">专注于 AI Agent 与软件开发，记录技术探索与工程实践。</p>
       <div class="metrics">
         <div class="metric"><span class="metric-num">AI</span><span class="metric-label">AGENT</span></div>
         <div class="metric"><span class="metric-num">TRACE</span><span class="metric-label">TRACE</span></div>
@@ -162,6 +162,20 @@
         }
       }
       type();
+    })();
+    // 打字机效果：专注于 AI Agent 与软件开发
+    (function () {
+      var el2 = document.getElementById('subline-typing');
+      var full2 = el2.textContent;
+      el2.textContent = '';
+      var j = 0;
+      function type2() {
+        if (j < full2.length) {
+          el2.textContent += full2.charAt(j++);
+          setTimeout(type2, 45);
+        }
+      }
+      type2();
     })();
 
     // 全屏流动粒子
