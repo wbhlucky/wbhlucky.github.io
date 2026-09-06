@@ -384,3 +384,61 @@ h1 {
 
 /* 让 hero 内容层级高于装饰背景 */
 .site-header, main { position: relative; z-index: 2; }
+
+/* ===== 特效升级：粒子画布 + 打字机 + 霓虹 + 指标 ===== */
+
+/* 粒子画布 */
+#particles {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+}
+
+/* 打字机光标 */
+#typing {
+  position: relative;
+  display: inline-block;
+}
+#typing::after {
+  content: '▍';
+  margin-left: 3px;
+  color: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 霓虹描边文字（用在标语上） */
+.tagline {
+  text-shadow: 0 0 8px rgba(0,212,255,0.6), 0 0 20px rgba(0,212,255,0.35);
+}
+
+/* 成就指标条 */
+.metrics {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 34px;
+  padding: 18px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+.metric-num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  letter-spacing: 0.04em;
+}
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}

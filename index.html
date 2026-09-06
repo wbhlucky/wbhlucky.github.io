@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/home.css">
 </head>
 <body>
+  <canvas id="particles" aria-hidden="true"></canvas>
   <div class="stars" aria-hidden="true"></div>
   <div class="aurora"></div>
   <div class="bg-glow bg-glow--1"></div>
@@ -51,8 +52,13 @@
       </a>
 
       <p class="eyebrow">SOFTWARE ENGINEER · AI AGENT</p>
-      <p class="tagline">感恩相遇，相遇即缘分。</p>
+      <p class="tagline" id="typing">感恩相遇，相遇即缘分。</p>
       <p class="subline">专注于 AI Agent 与软件开发，记录技术探索与工程实践。</p>
+      <div class="metrics">
+        <div class="metric"><span class="metric-num">AI</span><span class="metric-label">AGENT</span></div>
+        <div class="metric"><span class="metric-num">TRACE</span><span class="metric-label">TRACE</span></div>
+        <div class="metric"><span class="metric-num">OBS</span><span class="metric-label">OBSERVER</span></div>
+      </div>
 
       <div class="actions">
         <a class="btn btn-primary btn-large glow-pulse" href="/blog.html">博客文章 →</a>
@@ -112,6 +118,61 @@
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
+
+    // 打字机效果：感恩相遇，相遇即缘分。
+    (function () {
+      var el = document.getElementById('typing');
+      var full = el.textContent;
+      el.textContent = '';
+      var i = 0;
+      function type() {
+        if (i < full.length) {
+          el.textContent += full.charAt(i++);
+          setTimeout(type, 110);
+        }
+      }
+      type();
+    })();
+
+    // 全屏流动粒子
+    (function () {
+      var canvas = document.getElementById('particles');
+      var ctx = canvas.getContext('2d');
+      var W, H, particles = [];
+      function resize() {
+        W = canvas.width = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+      }
+      window.addEventListener('resize', resize);
+      resize();
+      var N = 90;
+      for (var i = 0; i < N; i++) {
+        particles.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: (Math.random() - 0.5) * 0.5,
+          r: Math.random() * 1.8 + 0.4,
+          c: ['0,212,255', '124,92,255', '255,110,199', '255,255,255'][i % 4]
+        });
+      }
+      function draw() {
+        ctx.clearRect(0, 0, W, H);
+        for (var i = 0; i < particles.length; i++) {
+          var p = particles[i];
+          p.x += p.vx; p.y += p.vy;
+          if (p.x < 0 || p.x > W) p.vx *= -1;
+          if (p.y < 0 || p.y > H) p.vy *= -1;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(' + p.c + ',0.8)';
+          ctx.fill();
+        }
+        requestAnimationFrame(draw);
+      }
+      draw();
+    })();
+  </script>
   </script>
 </body>
 </html>

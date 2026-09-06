@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="css/blog.css">
 </head>
 <body>
+  <canvas id="particles" aria-hidden="true"></canvas>
   <div class="stars" aria-hidden="true"></div>
   <div class="bg-glow bg-glow--1"></div>
   <div class="bg-glow bg-glow--2"></div>
@@ -95,6 +96,18 @@
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
+    (function () {
+      var canvas = document.getElementById('particles');
+      var ctx = canvas.getContext('2d');
+      var W, H, ps = [];
+      function rs() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+      addEventListener('resize', rs); rs();
+      var N = 70;
+      for (var i = 0; i < N; i++) ps.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.4,r:Math.random()*1.6+.4,c:['0,212,255','124,92,255','255,110,199','255,255,255'][i%4]});
+      function dr(){ ctx.clearRect(0,0,W,H); for(var i=0;i<ps.length;i++){var p=ps[i];p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.283);ctx.fillStyle='rgba('+p.c+',0.7)';ctx.fill();} requestAnimationFrame(dr); }
+      dr();
+    })();
+  </script>
   </script>
 </body>
 </html>
