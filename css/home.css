@@ -278,3 +278,64 @@ h1 {
   .project-link { margin-left: 0; }
 }
 
+/* 第三光晕 */
+.bg-glow--3 {
+  width: 360px; height: 360px;
+  background: #ff6ec7;
+  top: 35%; right: 28%;
+  opacity: 0.07;
+}
+
+/* 头像轨道光点 */
+.orbit { position: relative; display: inline-block; width: 96px; height: 96px; margin: 0 auto 18px; }
+.orbit-dot {
+  position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 10px rgba(0,212,255,0.9);
+}
+.orbit-dot--1 { top: 2px; left: 42px; animation: pulse 2.4s ease-in-out infinite; }
+.orbit-dot--2 { bottom: 6px; right: 8px; background: var(--accent-2); box-shadow: 0 0 10px rgba(124,92,255,0.9); animation: pulse 2.4s ease-in-out 0.8s infinite; }
+.orbit-dot--3 { bottom: 14px; left: 4px; background: #ff6ec7; box-shadow: 0 0 10px rgba(255,110,199,0.9); animation: pulse 2.4s ease-in-out 1.6s infinite; }
+@keyframes pulse { 0%,100% { opacity: .35; transform: scale(.8);} 50% { opacity: 1; transform: scale(1.15);} }
+
+/* 技术栈 */
+.stack { margin-top: 60px; text-align: center; }
+.stack-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .2em; color: var(--muted); margin-bottom: 18px; }
+.stack-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.chip {
+  font-size: 14px; color: var(--text);
+  padding: 8px 16px; border: 1px solid var(--border); border-radius: 999px;
+  background: rgba(255,255,255,0.02); transition: all .2s ease;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); }
+
+/* 终端装饰卡 */
+.terminal {
+  margin-top: 44px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0a0f1a;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  text-align: left;
+}
+.terminal-bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+.dot { width: 11px; height: 11px; border-radius: 50%; }
+.dot-red { background: #ff5f57; }
+.dot-yellow { background: #febc2e; }
+.dot-green { background: #28c840; }
+.terminal-title { margin-left: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.terminal-body { padding: 18px 20px; font-family: var(--font-mono); font-size: 14px; line-height: 2; }
+.term-prompt { color: var(--accent); margin-right: 8px; }
+.term-ok { color: #28c840; margin-right: 8px; }
+.term-dim { color: var(--muted); }
+.cursor { color: var(--accent); animation: blink 1s steps(1) infinite; margin-left: 4px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+@media (max-width: 600px) {
+  .terminal-body { font-size: 12px; padding: 14px 14px; }
+}
