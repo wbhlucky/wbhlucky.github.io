@@ -7,7 +7,7 @@
   <meta name="description" content="王博涵的个人技术博客，专注于 AI Agent 与软件开发。">
   <meta property="og:type" content="website">
   <meta property="og:title" content="王博涵 · 技术博客">
-  <meta property="og:description" content="路虽远，行则将至；事虽难，做则必成。AI Agent 与软件开发技术分享。">
+  <meta property="og:description" content="不负韶华，只争朝夕。AI Agent 与软件开发技术分享。">
   <meta property="og:url" content="https://wbhlucky.github.io/">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
   <link rel="stylesheet" href="css/home.css">
@@ -39,50 +39,11 @@
         <span class="orbit-dot orbit-dot--3"></span>
       </div>
       <a class="avatar" href="mailto:1433340920@qq.com" aria-label="联系邮箱">
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <defs>
-    <radialGradient id="planetBody" cx="0.35" cy="0.3" r="1.1">
-      <stop offset="0%" stop-color="#7fe7ff"/>
-      <stop offset="30%" stop-color="#00d4ff"/>
-      <stop offset="70%" stop-color="#2a5cff"/>
-      <stop offset="100%" stop-color="#0a1430"/>
-    </radialGradient>
-    <linearGradient id="ringGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="50%" stop-color="#7c5cff"/>
-      <stop offset="100%" stop-color="#ff6ec7"/>
-    </linearGradient>
-    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="2.2" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-
-  <!-- 外圈柔光 -->
-  <circle cx="32" cy="32" r="29.5" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1" filter="url(#softGlow)"/>
-
-  <!-- 斜向轨道环（后段，位于行星后） -->
-  <ellipse cx="32" cy="32" rx="23" ry="9" fill="none" stroke="url(#ringGrad)" stroke-width="2.4"
-           transform="rotate(-22 32 32)" opacity="0.55" stroke-dasharray="none"/>
-
-  <!-- 行星主体（立体高光） -->
-  <circle cx="32" cy="32" r="15" fill="url(#planetBody)" filter="url(#softGlow)"/>
-  <ellipse cx="26" cy="26" rx="6" ry="4" fill="#ffffff" opacity="0.35" transform="rotate(-30 26 26)"/>
-
-  <!-- 斜向轨道环（前段，位于行星前） -->
-  <ellipse cx="32" cy="32" rx="23" ry="9" fill="none" stroke="url(#ringGrad)" stroke-width="2.4"
-           transform="rotate(-22 32 32)" opacity="0.95" stroke-dasharray="0"/>
-  <!-- 轨道上的卫星 -->
-  <circle cx="49" cy="17" r="4.2" fill="#ffffff" filter="url(#softGlow)"/>
-  <circle cx="49" cy="17" r="2.2" fill="#00d4ff"/>
-</svg>
+        <img src="images/OIP-C.webp" alt="avatar" />
       </a>
 
       <p class="eyebrow">SOFTWARE ENGINEER · AI AGENT</p>
-      <p class="tagline" id="typing">路虽远，行则将至；事虽难，做则必成。</p>
+      <p class="tagline" id="typing">不负韶华，只争朝夕。</p>
       <p class="subline" id="subline-typing">专注于 AI Agent 与软件开发，记录技术探索与工程实践。</p>
       <div class="metrics">
         <div class="metric"><span class="metric-num">AI</span><span class="metric-label">AGENT</span></div>
@@ -111,6 +72,59 @@
       </div>
     </section>
 
+    <section class="project">
+      <div class="project-grid">
+        <article class="project-card">
+          <span class="project-icon">⌗</span>
+          <div class="project-body">
+            <p class="project-label">精选项目</p>
+            <h2>Trace-analyse-Agent</h2>
+            <p class="project-desc">An AI agent for trace analysis.</p>
+          </div>
+          <div class="project-links">
+            <a class="project-link" href="https://github.com/wbhlucky/Trace-analyse-Agent" target="_blank" rel="noopener" aria-label="前往项目仓库">
+              <span>访问项目</span>
+              <span class="arrow">→</span>
+            </a>
+          </div>
+        </article>
+
+        <article class="project-card">
+          <span class="project-icon">👁</span>
+          <div class="project-body">
+            <p class="project-label">视觉记忆</p>
+            <h2>ai-vision-assistant</h2>
+            <p class="project-desc">视觉记忆 AI 助手：不仅能看到，还能记住、理解与预测。</p>
+          </div>
+          <div class="project-links">
+            <a class="project-link project-link--light" href="https://github.com/wbhlucky/ai-vision-assistant" target="_blank" rel="noopener" aria-label="前往 ai-vision-assistant 仓库">
+              <span>访问项目</span>
+              <span class="arrow">→</span>
+            </a>
+            <a class="project-link project-link--light" href="https://www.bilibili.com/video/BV17nJ569EDk/" target="_blank" rel="noopener" aria-label="观看 B 站演示视频">
+              <span>B站演示</span>
+              <span class="arrow">→</span>
+            </a>
+          </div>
+        </article>
+
+        <article class="project-card">
+          <span class="project-icon">📚</span>
+          <div class="project-body">
+            <p class="project-label">Agentic RAG</p>
+            <h2>Agentic-Rag-</h2>
+            <p class="project-desc">面向扫地机器人业务场景的 Agentic RAG 问答与检索系统。</p>
+          </div>
+          <div class="project-links">
+            <a class="project-link" href="https://github.com/wbhlucky/Agentic-Rag-" target="_blank" rel="noopener" aria-label="前往 Agentic-Rag- 仓库">
+              <span>访问项目</span>
+              <span class="arrow">→</span>
+            </a>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section class="terminal" aria-label="代码终端装饰">
       <div class="terminal-bar">
         <span class="dot dot-red"></span>
@@ -126,30 +140,15 @@
       </div>
     </section>
 
-    <section class="project">
-      <article class="project-card">
-        <span class="project-icon">⌗</span>
-        <div class="project-body">
-          <p class="project-label">精选项目</p>
-          <h2>Trace-analyse-Agent</h2>
-          <p class="project-desc">An AI agent for trace analysis.</p>
-        </div>
-        <a class="project-link" href="https://github.com/wbhlucky/Trace-analyse-Agent" target="_blank" rel="noopener" aria-label="前往项目仓库">
-          <span>访问项目</span>
-          <span class="arrow">→</span>
-        </a>
-      </article>
-    </section>
-
     <footer class="site-footer">
-      <p>© <span id="year">2026</span> 王博涵 · 路虽远，行则将至；事虽难，做则必成。</p>
+      <p>© <span id="year">2026</span> 王博涵 · 不负韶华，只争朝夕。</p>
     </footer>
   </main>
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
 
-    // 打字机效果：路虽远，行则将至；事虽难，做则必成。
+    // 打字机效果：不负韶华，只争朝夕。
     (function () {
       var el = document.getElementById('typing');
       var full = el.textContent;
