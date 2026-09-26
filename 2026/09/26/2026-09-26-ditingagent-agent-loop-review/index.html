@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+
+  <title>DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="复盘 DitingAgent 的完整 Agent Loop：外层 8 步确定性流水线包住 SDK Session，Capability 门控工具、Scenario 路由 Skill、Preflight 预载首次发现、Budget 硬限制、Submission 证据闸门与 Seal 封盘，最后用 Normalize / Validate 再验收，把模型的自由行为约束成可审计、可收敛的闭环。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop">
+<meta property="og:url" content="https://wbhlucky.github.io/2026/09/26/2026-09-26-ditingagent-agent-loop-review/">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="复盘 DitingAgent 的完整 Agent Loop：外层 8 步确定性流水线包住 SDK Session，Capability 门控工具、Scenario 路由 Skill、Preflight 预载首次发现、Budget 硬限制、Submission 证据闸门与 Seal 封盘，最后用 Normalize / Validate 再验收，把模型的自由行为约束成可审计、可收敛的闭环。">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="AI智能体">
+<meta property="article:tag" content="AI Agent">
+<meta property="article:tag" content="架构分析">
+<meta property="article:tag" content="Claude Code">
+<meta name="twitter:card" content="summary">
+
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+
+
+    <link rel="shortcut icon" href="/favicon.png">
+
+
+
+<link rel="stylesheet" href="/css/style.css">
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+
+          <a class="main-nav-link" href="/">Home</a>
+
+          <a class="main-nav-link" href="/archives">Archives</a>
+
+      </nav>
+      <nav id="sub-nav">
+
+
+          <a class="nav-icon" href="/atom.xml" title="RSS Feed"><span class="fa fa-rss"></span></a>
+
+        <a class="nav-icon nav-search-btn" title="Search"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-2026-09-26-ditingagent-agent-loop-review" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/09/26/2026-09-26-ditingagent-agent-loop-review/" class="article-date">
+  <time class="dt-published" datetime="2026-09-25T16:00:00.000Z" itemprop="datePublished">2026-09-26</time>
+</a>
+
+  <div class="article-category"><a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a>&#x25BA;<a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a></div>
+
+  </div>
+  <div class="article-inner">
+
+
+      <header class="article-header">
+
+
+    <h1 class="p-name article-title" itemprop="headline name">DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop</h1>
+
+
+      </header>
+
+    <div class="e-content article-entry" itemprop="articleBody">
+<blockquote>
+<p>用途：代码复盘、面试讲项目、快速恢复架构记忆。</p>
+<p><strong>核心认知：</strong> DitingAgent 不是简单的“LLM + Tool”，而是“确定性工作流包住 SDK Agent Loop”，再用 Evidence、Budget、Submission、Seal、Validation 把模型的自由行为约束成可审计、可收敛的闭环。</p>
+</blockquote>
+<hr>
+<h2>1. 一张图看完整流程</h2>
+<pre><code class="language-text">.htrace
+  ↓
+1. run.prepare
+  ↓
+2. trace.prepare
+  .htrace → SQLite(current.db) → TraceHandle
+                              └→ capabilities
+  ↓
+3. analysis.setup
+  ├→ ToolRegistry(capabilities)
+  ├→ Scenario → Skills
+  └→ AgentFactory.create()
+       → Agent Definition / Config
+  ↓
+4. analysis.preflight
+  ├→ preload：先做确定性的首次发现
+  ├→ readiness：生成 PreflightReport
+  └→ preloaded_evidence
+  ↓
+5. agent.analyze
+  ┌─────────────────────────────────────────┐
+  │ Agent Definition                        │
+  │      ↓                                  │
+  │ SDK Session / MCP / Tool Loop           │
+  │      ↓                                  │
+  │ LLM ↔ Tools ↔ EvidenceStore             │
+  │      ↓                                  │
+  │ submit_analysis_result                   │
+  │   ├─ reject → 补证据 → 继续当前会话      │
+  │   └─ accept → seal → 禁止继续取证        │
+  └─────────────────────────────────────────┘
+  ↓
+6. analysis.normalize
+7. analysis.validate
+8. report.render
+  ↓
+Memory: recall → Run → remember / consolidation
+</code></pre>
+<p><strong>一句话：</strong></p>
+<blockquote>
+<p><strong>外层负责流程、确定性逻辑和验收；内层负责语义推理和工具选择。</strong></p>
+</blockquote>
+<hr>
+<h2>2. 外层 8 步流水线</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>作用</th>
+<th>关键点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run.prepare</code></td>
+<td>初始化 run / manifest / checkpoint</td>
+<td>支持 resume</td>
+</tr>
+<tr>
+<td><code>trace.prepare</code></td>
+<td><code>.htrace → SQLite</code></td>
+<td>产出 <code>TraceHandle</code></td>
+</tr>
+<tr>
+<td><code>analysis.setup</code></td>
+<td>注册 Tools、选择 Skills、创建 Agent</td>
+<td>capability + scenario 驱动配置</td>
+</tr>
+<tr>
+<td><code>analysis.preflight</code></td>
+<td>预加载 + readiness report</td>
+<td>模型介入前先做确定性工作</td>
+</tr>
+<tr>
+<td><code>agent.analyze</code></td>
+<td>SDK 驱动 LLM + Tool Loop</td>
+<td>真正的 Agent 核心</td>
+</tr>
+<tr>
+<td><code>analysis.normalize</code></td>
+<td>从 Evidence 回填确定性字段</td>
+<td>降低 LLM 手填错误</td>
+</tr>
+<tr>
+<td><code>analysis.validate</code></td>
+<td>最终业务/数值校验</td>
+<td>LLM 输出不是最终真相</td>
+</tr>
+<tr>
+<td><code>report.render</code></td>
+<td>生成最终 HTML</td>
+<td>输出可交付结果</td>
+</tr>
+</tbody>
+</table>
+<p>生产主路径：</p>
+<pre><code class="language-text">AnalyzeApplication
+    ↓
+AnalysisAgent adapter
+    ↓
+Claude / Qoder / OpenAI SDK
+</code></pre>
+<p><code>agent/runtime.py</code> 的 <code>AgentRuntime</code> 目前主要用于 contract / test，不是 CLI 生产主链路；仓库因此存在两套 runtime / repair 语义。</p>
+<hr>
+<h2>3. Agent Definition vs Session：理解这套架构最关键的一层</h2>
+<h3>3.1 三层结构</h3>
+<pre><code class="language-text">Agent Definition / Config
+        ↓
+Agent Session / Runtime
+        ↓
+Model + Tool Loop
+</code></pre>
+<p>在本项目里：</p>
+<pre><code class="language-text">ClaudeAgentSdkAgent / QoderAgentSdkAgent
+    │
+    ├─ skills
+    ├─ project_root
+    ├─ runtime_config
+    └─ memory_context
+    │
+    ▼
+analyze()
+    ├─ 新建 MCP server
+    ├─ 新建 SDK client / session
+    ├─ 新建 submission_state
+    ├─ 新建 allowed_tools
+    └─ 开始真正的 LLM Tool Loop
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong>Agent 对象更像“配置载体”；真正的运行状态在 Session / Run 内。</strong></p>
+</blockquote>
+<h4>Definition 保存什么？</h4>
+<pre><code class="language-text">模型/SDK配置
+Skills
+project_root
+运行规则
+允许的工具
+memory_context 等
+</code></pre>
+<h4>Session / Run 保存什么？</h4>
+<pre><code class="language-text">当前 Trace
+conversation / messages
+tool call history
+evidence
+budget
+submission_state
+seal 状态
+当前分析进度
+</code></pre>
+<p>可以记成：</p>
+<blockquote>
+<p><strong>Agent = 我是谁、我能做什么；Session = 我这一次正在做什么。</strong></p>
+</blockquote>
+<h3>3.2 为什么每次 run 都 new Agent？</h3>
+<p>不是因为 Agent 很重。</p>
+<p><code>ClaudeAgentSdkAgent.__init__()</code> 只保存少量配置字段；真正有成本的东西是在 <code>analyze()</code> 内按次建立的：</p>
+<pre><code class="language-text">MCP server
+SDK client / session
+submission_state
+allowed_tools
+LLM calls / tool calls
+</code></pre>
+<p>因此：</p>
+<pre><code class="language-text">new Agent 对象 ≈ 新建轻量配置对象
+</code></pre>
+<p>真正的大头是：</p>
+<pre><code class="language-text">SDK Session
++ LLM inference
++ token
++ tool execution
++ latency
+</code></pre>
+<h3>3.3 为什么项目需要 Factory？</h3>
+<p>关键不是“Agent 很重”，而是：</p>
+<blockquote>
+<p><strong>Agent 配置是 run-dependent 的。</strong></p>
+</blockquote>
+<p>因为：</p>
+<pre><code class="language-text">Trace / Scenario
+    ↓
+Skill 路由
+    ↓
+Agent Config
+</code></pre>
+<p>例如：</p>
+<pre><code class="language-text">cold-start
+→ trace-analysis + cold-start-analysis
+
+frame-jank
+→ trace-analysis + frame-jank-analysis
+→ 若有 perf samples，再加 perf-sample-analysis
+</code></pre>
+<p>所以生产路径每次分析在 <code>analysis.setup</code> 调一次：</p>
+<pre><code class="language-text">DefaultAnalysisAgentFactory.create()
+        ↓
+本次 Run 专属的 Agent Definition
+        ↓
+analyze()
+        ↓
+本次 Run 专属的 SDK Session
+</code></pre>
+<p>resume 时也会重建，因为 <code>analysis.setup</code> 不属于可复用 step。</p>
+<h4>Factory 的真正职责</h4>
+<blockquote>
+<p><strong>根据当前 Trace / Scenario / Skill 上下文，组装正确的 Agent 配置。</strong></p>
+</blockquote>
+<p>不是：</p>
+<blockquote>
+<p>“因为 Agent 很重，所以必须 Factory。”</p>
+</blockquote>
+<h3>3.4 Agent 能不能跨 Run 复用？</h3>
+<p><strong>可以，只要 Agent 本身不持有 run-specific mutable state。</strong></p>
+<p><code>LocalAnalysisAgent()</code> 被 eval 多个 case 复用就是直接证明。</p>
+<p>但如果 Skill / Prompt / Tools 会随 Scenario 改变，则需要重新组装 Definition。</p>
+<p>因此更准确的工业化表达是：</p>
+<pre><code class="language-text">Agent Definition：可复用
+Session / Run：必须隔离
+Run State：不应该塞进 Agent Definition
+</code></pre>
+<p>独立 Trace 不共享会话，是为了避免：</p>
+<pre><code class="language-text">Run A 的 evidence / conversation / tool history
+            ↓
+污染 Run B
+</code></pre>
+<h3>3.5 Skill fingerprint 为什么每次算？</h3>
+<p>流程：</p>
+<pre><code class="language-text">SkillCatalog.require()
+    ↓
+rglob skill directory
+    ↓
+read_bytes()
+    ↓
+SHA256
+    ↓
+fingerprint
+    ↓
+manifest.skills
+</code></pre>
+<p>当前 Skill 目录只有几十个文件、几十 KB 量级，重算成本很小。</p>
+<p>价值在于<strong>可复现 / 可审计</strong>：</p>
+<pre><code class="language-text">某次 Run 用了哪个 Skill 版本？
+后来 Eval 变了，是不是 Skill 文件改了？
+</code></pre>
+<p>因此这里属于典型的：</p>
+<blockquote>
+<p><strong>用很小的运行时开销换审计和复现能力。</strong></p>
+</blockquote>
+<h4>这部分面试一句话</h4>
+<blockquote>
+<p><strong>Agent Definition 与 Session 解耦是通用工程模式；本项目因为 Skill 随 Scenario 变化，所以通过 Factory 每次组装轻量 Definition，再为每个分析建立隔离 Session。</strong></p>
+</blockquote>
+<hr>
+<h2>4. Trace 和 Evidence：一开始分别是什么？</h2>
+<h3>4.1 TraceHandle</h3>
+<p>Step 2 产出，核心信息：</p>
+<pre><code class="language-text">database_path
+capabilities
+trace_id / format / size_bytes / trace_path
+baseline_*          # 有 --baseline 时
+conversions         # 转换审计
+</code></pre>
+<p>Step 3 注册工具时真正直接用于门控的是：</p>
+<pre><code class="language-python">ToolRegistry(set(trace.capabilities))
+</code></pre>
+<p>其余字段通常被 handler 闭包捕获，真正执行时再用；SQLite repository 也是工具调用时才构造，所以注册阶段几乎零成本。</p>
+<blockquote>
+<p><strong>Trace 是“去哪查、支持什么”的句柄，不是把全部 Trace 数据预加载进内存。</strong></p>
+</blockquote>
+<h3>4.2 EvidenceStore</h3>
+<p>创建时就是空容器：</p>
+<pre><code class="language-python">_evidence = []
+_audit = []
+</code></pre>
+<p>工具每次执行再写入：</p>
+<pre><code class="language-text">EvidenceRecord
+ToolAuditRecord
+</code></pre>
+<p>并分配：</p>
+<pre><code class="language-text">ev-0001 / ev-0002 / ...
+</code></pre>
+<p>后续 <code>normalize / validate / report</code> 都会读取它，失败时也可以直接落盘：</p>
+<pre><code class="language-text">evidence.json
+agent-log.jsonl
+</code></pre>
+<blockquote>
+<p><strong>Trace 负责“查数据”，Evidence 负责“证明这次分析查到了什么”。</strong></p>
+</blockquote>
+<hr>
+<h2>5. Skill：严格按 Scenario 路由</h2>
+<p>4 个场景与公共 Skill 的关系：</p>
+<pre><code class="language-text">cold-start          → trace-analysis + cold-start-analysis
+response-latency    → trace-analysis + response-latency-analysis
+completion-latency  → trace-analysis + completion-latency-analysis
+frame-jank          → trace-analysis + frame-jank-analysis
+</code></pre>
+<p>若 Trace 中：</p>
+<pre><code class="language-text">perf_sample 表存在 + 真有行
+</code></pre>
+<p>再加：</p>
+<pre><code class="language-text">perf-sample-analysis
+</code></pre>
+<p>所以一次通常是：</p>
+<pre><code class="language-text">2 个 Skill，或 3 个 Skill
+</code></pre>
+<h3>Claude / Qoder 的加载差异</h3>
+<p>传给 Factory / adapter 的首先是 <strong>SkillDefinition 元数据</strong>，不是 <code>SKILL.md</code> 正文。</p>
+<h4>Claude</h4>
+<pre><code class="language-text">SkillDefinition
+→ system prompt / Read 白名单
+→ 模型 Read
+→ SKILL.md 才真正进入上下文
+</code></pre>
+<h4>Qoder</h4>
+<p>可以把 <code>skills=[name...]</code> 交给 SDK，由 SDK 原生加载。</p>
+<p>Claude 路径的 Read hook 还会限制模型只能读本次启用 Skill 目录，防止偷看其他场景方法论。</p>
+<blockquote>
+<p><strong>Scenario 决定场景 Skill；Trace 是否有 perf samples 决定是否加 perf Skill。</strong></p>
+</blockquote>
+<hr>
+<h2>6. Capability：不是数据库完整 schema，而是语义开关</h2>
+<p><code>inspect()</code> 先查：</p>
+<pre><code class="language-sql">SELECT name
+FROM sqlite_master
+WHERE type IN ('table', 'view')
+</code></pre>
+<p>这里得到的 <code>tables</code> 只是局部变量，不会原样对外输出。</p>
+<p>因此：</p>
+<blockquote>
+<p><strong>Capability 是对底层 SQLite schema 的有损、多对一语义投影。</strong></p>
+</blockquote>
+<h3>12 类能力的来源</h3>
+<h4>无条件基线</h4>
+<pre><code class="language-text">FILE_METADATA
+TRACE_DATABASE
+</code></pre>
+<h4>baseline 参数决定</h4>
+<pre><code class="language-text">BASELINE_METADATA
+</code></pre>
+<h4>表存在即可点亮的 7 类</h4>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>候选表</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PROCESSES</code></td>
+<td><code>process</code></td>
+</tr>
+<tr>
+<td><code>THREADS</code></td>
+<td><code>thread</code></td>
+</tr>
+<tr>
+<td><code>SLICES</code></td>
+<td><code>callstack</code>, <code>slice</code></td>
+</tr>
+<tr>
+<td><code>CPU_SCHEDULING</code></td>
+<td><code>sched_slice</code>, <code>thread_state</code></td>
+</tr>
+<tr>
+<td><code>IO_EVENTS</code></td>
+<td><code>diskio</code>, <code>file_system_sample</code>, <code>bio_latency_sample</code>, <code>syscall</code></td>
+</tr>
+<tr>
+<td><code>FRAME_EVENTS</code></td>
+<td><code>frame_slice</code>, <code>actual_frame_timeline_slice</code>, <code>expected_frame_timeline_slice</code></td>
+</tr>
+<tr>
+<td><code>MARKERS</code></td>
+<td><code>instant</code>, <code>app_startup</code>, <code>task_pool</code>, <code>callstack</code></td>
+</tr>
+</tbody>
+</table>
+<p>判断是候选表集合与实际表集合<strong>有交集即可点亮</strong>，所以不能从 capability 反推完整 schema。</p>
+<h4>还要求“表存在 + 真有行”的 2 类</h4>
+<pre><code class="language-text">APP_STARTUP_STAGES → app_startup + 有数据
+PERF_SAMPLES       → perf_sample + 有数据
+</code></pre>
+<p>目的是防止空表把工具错误放行。</p>
+<h3>Capability 真正负责什么？</h3>
+<pre><code class="language-text">Trace.capabilities
+   ↓
+ToolRegistry.available()
+   ↓
+工具可见性
+</code></pre>
+<p>以及：</p>
+<pre><code class="language-text">capabilities
+   ↓
+ScenarioSkillRouter
+   ↓
+是否加入 perf Skill
+</code></pre>
+<p>所以它回答：</p>
+<blockquote>
+<p><strong>“这个 Trace 支持哪类分析？”</strong></p>
+</blockquote>
+<p>而不是：</p>
+<blockquote>
+<p>“这个 DB 到底有哪些表、哪些列？”</p>
+</blockquote>
+<p>真正 schema 来自：</p>
+<pre><code class="language-text">Skill reference 文档
++ query_trace_sql
++ repository 运行时列探测
+</code></pre>
+<hr>
+<h2>7. Schema 门控：三层</h2>
+<pre><code class="language-text">① 表存在
+   ↓
+capability
+   ↓
+工具看不看得见
+
+② 特定表是否有数据
+   ↓
+防空表误放行
+
+③ 工具执行时检查列
+   ↓
+决定 SQL 怎么写，适配 schema 漂移
+</code></pre>
+<p>所以最短记法：</p>
+<blockquote>
+<p><strong>Capability 决定“看不看得见”；Repository 决定“怎么查”。</strong></p>
+</blockquote>
+<hr>
+<h2>8. Preflight：把“模型不该动脑”的调用拿走</h2>
+<h3>8.1 核心原则</h3>
+<blockquote>
+<p><strong>参数不需要模型判断的工具调用，就不应该让模型来调。</strong></p>
+</blockquote>
+<p>例如：</p>
+<pre><code class="language-text">get_trace_overview
+场景候选工具的第一次全量发现
+</code></pre>
+<p>如果参数只是：</p>
+<pre><code class="language-text">request 字段 + 常量
+</code></pre>
+<p>就应该在 step 4 先执行。</p>
+<h3>8.2 为什么提前跑？</h3>
+<p>否则模型开局会花工具调用去做低价值工作：</p>
+<pre><code class="language-text">耗 token
+耗 latency
+耗 tool budget
+增加抄错参数 / 忘调 / 重复调 / 乱造参数的概率
+</code></pre>
+<p>典型的 <code>completion-latency</code> 是两阶段：</p>
+<pre><code class="language-text">第 1 次：preflight
+ target_ipid = 0
+ → 全量发现候选
+
+第 2 次：Agent
+ target_ipid = 非零
+ → 对最终应用进程补充精查
+</code></pre>
+<p>这里：</p>
+<blockquote>
+<p><strong>第一次不需要判断，第二次需要模型从候选里选目标，二者职责不同。</strong></p>
+</blockquote>
+<h3>8.3 <code>preload</code> 不是特殊旁路，而是 <code>invoke</code></h3>
+<pre><code class="language-python">def preload(name, arguments=None):
+    result = self.invoke(name, arguments)
+    self._preloaded_results.append(result)
+    return result
+</code></pre>
+<p>所以预载：</p>
+<ol>
+<li>真实消耗 invocation / tool budget</li>
+<li>真实写 Evidence + audit</li>
+<li>真实受到 per-tool limit、seal 等约束</li>
+</ol>
+<p>因此：</p>
+<blockquote>
+<p><strong>preloaded evidence 不是 prompt 背景资料，而是正式 Evidence。</strong></p>
+</blockquote>
+<p>它会进入：</p>
+<pre><code class="language-text">EvidenceStore
+→ normalize
+→ validate
+→ evidence.json
+</code></pre>
+<h3>8.4 Budget 体现了“预载 + 补充取证”的分工</h3>
+<p>典型配置：</p>
+<pre><code class="language-text">get_trace_overview                         limit = 1
+inspect_problem_window_candidates          limit = 1
+inspect_completion_latency_candidates     limit = 2
+</code></pre>
+<p>于是可以做到：</p>
+<pre><code class="language-text">确定性的第 1 次 → preflight
+需要判断的第 2 次 → Agent
+</code></pre>
+<p>这不是 prompt 劝说，而是<strong>预算 + Submission Policy 共同构成的硬约束</strong>。</p>
+<h3>8.5 Readiness Gate：当前主要是透明化契约，不是实际输入拦截器</h3>
+<p>这里最容易讲错。</p>
+<p>当前 <code>_completeness_gaps()</code> 对用户输入的缺失只产生：</p>
+<pre><code class="language-text">target_process     → info
+refresh_rate_hz    → warning
+problem_interval   → warning
+</code></pre>
+<p>而 <code>blocking()</code> 只看：</p>
+<pre><code class="language-python">severity == &quot;error&quot;
+</code></pre>
+<p>所以：</p>
+<pre><code class="language-text">缺 target-process
+缺 refresh-rate
+缺 problem interval
+        ↓
+当前都不会因为“缺输入”而阻塞
+</code></pre>
+<p>生产路径里真正可能产生 <code>error</code> 的来源是：</p>
+<pre><code class="language-text">tool_available = False
+</code></pre>
+<p>即场景要求的候选工具不在 <code>tools.names()</code>。</p>
+<p>但当前这些场景候选工具的 <code>required_capabilities</code> 都只是：</p>
+<pre><code class="language-text">{TRACE_DATABASE}
+</code></pre>
+<p>而 <code>TRACE_DATABASE</code> 是 DB 能打开就会存在的基线能力。</p>
+<p>因此生产中通常：</p>
+<pre><code class="language-text">tool_available = True
+→ 无 error gap
+→ ready = True
+</code></pre>
+<p>所以准确定位是：</p>
+<blockquote>
+<p><strong>Readiness Gate 现在是契约骨架 + 透明化 / 审计机制，而不是主要的输入拦截器。</strong></p>
+</blockquote>
+<h4>它现在真正做三件事</h4>
+<p><strong>1. 显式记录系统假设</strong></p>
+<p>例如没有 refresh rate 时：</p>
+<pre><code class="language-text">使用 60Hz 默认值
++ default_applied = true
++ warning
+</code></pre>
+<p>problem interval 也可以按规则从 Trace 推导。</p>
+<p><strong>2. 生成可审计的 <code>PreflightReport</code></strong></p>
+<p>记录：</p>
+<pre><code class="language-text">ready
+tool
+gaps
+preloaded_results
+</code></pre>
+<p>并落盘：</p>
+<pre><code class="language-text">preflight-report.json
+</code></pre>
+<p><strong>3. 给 UI 提供结构化状态</strong></p>
+<p>事件可携带：</p>
+<pre><code class="language-text">ready
+tool_available
+gap_count
+</code></pre>
+<h4>为什么 Gate 仍然有价值？</h4>
+<p>因为骨架已经存在：</p>
+<pre><code class="language-text">InputGap + severity
+→ blocking()
+→ ready
+→ structured failure path
+</code></pre>
+<p>未来想收紧准入，只需要把某些 <code>warning</code> 提成 <code>error</code>，或者让工具声明更细的 capability，不必重写主编排。</p>
+<h3>8.6 Preloaded evidence 如何进入模型？</h3>
+<p><code>build_user_prompt(..., preloaded_evidence=...)</code> 会把预载结果注入 user prompt，并告诉模型：</p>
+<pre><code class="language-text">这些结果与工具返回值具有相同证据效力
+不要重复调用同参数发现工具
+</code></pre>
+<p>所以模型并不是“从零开始”：</p>
+<pre><code class="language-text">用户请求
++ memory_context
++ preloaded_evidence
++ Skill 方法论
+</code></pre>
+<h3>8.7 Local adapter</h3>
+<p>Claude / Qoder / OpenAI 等路径声明需要 preflight；<code>local</code> 不依赖这层，但会兜底：</p>
+<pre><code class="language-python">overview = tools.last_result(&quot;get_trace_overview&quot;)
+if overview is None:
+    overview = tools.invoke(&quot;get_trace_overview&quot;)
+</code></pre>
+<p>即：<strong>优先复用预载结果，没有才现场补调。</strong></p>
+<hr>
+<h2>9. 真正的 Agent Loop：Step 5</h2>
+<p>项目不是手写一个简单：</p>
+<pre><code class="language-python">while True:
+    llm()
+    tool()
+</code></pre>
+<p>而是：</p>
+<pre><code class="language-text">Agent SDK
+   ↕
+LLM
+   ↕
+MCP Tools
+</code></pre>
+<p>应用层控制边界、权限、预算、提交和收敛；SDK 负责具体的会话和工具循环。</p>
+<h3>9.1 Skill / Tool 权限</h3>
+<p>系统提示会要求模型先读取本次启用的 Skill，再进入 Trace 工具分析。</p>
+<p>典型允许：</p>
+<pre><code class="language-text">Read
+Trace MCP tools
+</code></pre>
+<p>典型禁止：</p>
+<pre><code class="language-text">Bash / Edit / Write / Grep / WebFetch / Task
+</code></pre>
+<p>所以这是专用 Trace Agent，不是通用 Coding Agent。</p>
+<hr>
+<h2>10. 一次 Tool Call 到底经过什么？</h2>
+<pre><code class="language-text">LLM
+ ↓
+ToolRegistry.invoke()
+ ↓
+预算 / per-tool limit / seal
+ ↓
+handler
+ ↓
+SQLite repository
+ ↓
+EvidenceStore
+ ├→ 完整结果
+ └→ audit
+ ↓
+agent_tool_payload
+ ↓
+LLM
+</code></pre>
+<p>关键设计：</p>
+<blockquote>
+<p><strong>Evidence 保存完整结果；模型只拿压缩视图。</strong></p>
+</blockquote>
+<p>这样上下文不会被大量原始数据撑爆，但审计和后处理仍拿得到完整证据。</p>
+<hr>
+<h2>11. Tool Budget：真正的硬限制</h2>
+<p>Prompt 里可以告诉模型：</p>
+<pre><code class="language-text">普通工具 ≤ 14 次
+query_trace_sql ≤ 6 次
+</code></pre>
+<p>但真正的硬约束来自 <code>ToolRegistry.invoke()</code>：</p>
+<pre><code class="language-text">总 budget
+per-tool limit
+perf 独立预算
+</code></pre>
+<p>超限时抛 <code>ToolBudgetExceeded</code>，并把“基于现有 Evidence 尽快提交”之类的指令反馈给模型。</p>
+<blockquote>
+<p><strong>Prompt 是软约束；Registry budget 是 runtime guardrail。</strong></p>
+</blockquote>
+<hr>
+<h2>12. Submission：Agent 的真正“交卷闸门”</h2>
+<p>模型必须显式调用：</p>
+<pre><code class="language-text">submit_analysis_result
+</code></pre>
+<p>然后经过：</p>
+<pre><code class="language-text">1. EvidenceSubmissionPolicy
+2. Schema
+3. validate_analysis()
+</code></pre>
+<h3>EvidenceSubmissionPolicy 的作用</h3>
+<p>它不是检查“格式像不像”，而是检查：</p>
+<blockquote>
+<p><strong>结论所需的关键证据到底有没有真正取到。</strong></p>
+</blockquote>
+<p>例如 <code>completion-latency</code>：</p>
+<pre><code class="language-text">必须有最终非零 target_ipid 的证据
+</code></pre>
+<p>存在 perf samples 时：</p>
+<pre><code class="language-text">必须 inspect_perf_profile
+并限定到线程级 TID
+</code></pre>
+<h3>reject 怎么办？</h3>
+<p>不会直接结束：</p>
+<pre><code class="language-text">submit
+ ↓
+reject
+ ↓
+精确 instruction
+ ├→ 缺哪个证据
+ ├→ 应该调哪个工具
+ └→ 应该传什么参数
+ ↓
+继续当前会话
+ ↓
+再次 submit
+</code></pre>
+<p>这才是真正的 Agent repair loop。</p>
+<hr>
+<h2>13. Seal：为什么 accepted 后马上封盘？</h2>
+<pre><code class="language-text">accepted = true
+      ↓
+registry.seal()
+      ↓
+所有后续工具调用失败
+</code></pre>
+<p>目的：阻止：</p>
+<pre><code class="language-text">提交
+→ 又取证
+→ 又修改结论
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong>accepted = 证据窗口封盘。</strong></p>
+</blockquote>
+<p>这让“交卷”成为真正的状态边界，而不是一个普通函数调用。</p>
+<hr>
+<h2>14. 两种 Repair：千万不要混</h2>
+<h3>14.1 Submission Reject Repair</h3>
+<pre><code class="language-text">原因：证据不够
+→ 允许继续调工具
+→ 补证据
+→ 再 submit
+</code></pre>
+<h3>14.2 Parse Repair</h3>
+<p>如果 SDK 返回结果解析失败：</p>
+<pre><code class="language-text">submission_state
+ ↓
+structured_output
+ ↓
+text_blocks 中倒序找 JSON
+</code></pre>
+<p>仍失败时，在满足条件下进入最多 3 轮的输出修复，并受 token / time 双预算约束。</p>
+<p><strong>此时工具已经 seal。</strong></p>
+<p>因此：</p>
+<pre><code class="language-text">Parse Repair
+→ 只能基于已有 Evidence 修正结构化结果
+→ 不能再造新证据
+</code></pre>
+<h4>最短记忆</h4>
+<blockquote>
+<p><strong>Submission Repair = 补证据；Parse Repair = 修输出。</strong></p>
+</blockquote>
+<hr>
+<h2>15. Step 6～8：LLM 输出不是最终真相</h2>
+<pre><code class="language-text">LLM
+ ↓
+Evidence-backed result
+ ↓
+Normalize
+ ↓
+Validate
+ ↓
+Report
+</code></pre>
+<h3>Normalize</h3>
+<p>从 Evidence 确定性回填已知大字段，避免 LLM 手工复制事实数据。</p>
+<h3>Validate</h3>
+<p>最终做数值、结构、时间边界等校验；失败会留下 <code>rejected-findings.json</code>。</p>
+<p>因此：</p>
+<blockquote>
+<p><strong>模型负责提出分析，代码负责最终验收。</strong></p>
+</blockquote>
+<hr>
+<h2>16. Memory：在 Agent 两端形成长期闭环</h2>
+<p>运行前：</p>
+<pre><code class="language-text">MemoryRuntime.recall()
+→ 按场景 / 症状召回历史经验
+→ memory_context
+</code></pre>
+<p>运行后：</p>
+<pre><code class="language-text">_remember_episode()
+→ episode
+→ consolidation / dreaming queue
+</code></pre>
+<p>整体：</p>
+<pre><code class="language-text">历史经验
+ ↓
+Recall
+ ↓
+当前 Run
+ ↓
+Episode
+ ↓
+Consolidation
+ ↓
+未来 Recall
+</code></pre>
+<p>Memory 不替代 Agent Loop，它负责跨 Run 的经验积累。</p>
+<hr>
+<h2>17. EventBus / Deadline：运行控制层</h2>
+<p><code>RunContext</code> 携带：</p>
+<pre><code class="language-text">cancel_event
+Deadline
+</code></pre>
+<p>负责取消、超时和整体执行边界。</p>
+<p><code>EventBus</code> 把运行状态提供给：</p>
+<pre><code class="language-text">CLI progress
+Web panel
+</code></pre>
+<p>所以业务执行和展示层保持解耦。</p>
+<hr>
+<h2>18. AgentRuntime：为什么容易和生产路径混？</h2>
+<p>仓库还有：</p>
+<pre><code class="language-text">agent/runtime.py
+</code></pre>
+<p>它包含：</p>
+<pre><code class="language-text">CREATED → STARTING → RUNNING → REPAIRING → COMPLETED
+RuntimeCommand
+DeterministicResultVerifier
+repair rounds
+</code></pre>
+<p>但目前主要服务 contract / tests，不是 CLI 生产主路径。</p>
+<p>所以仓库现状是：</p>
+<pre><code class="language-text">生产路径
+AnalyzeApplication
+→ AnalysisAgent adapter
+→ Claude / Qoder SDK
+
+另一套
+AgentRuntime
+→ contract / test
+</code></pre>
+<p>这属于架构演进中的重叠，面试可以主动指出。</p>
+<hr>
+<h2>19. 全项目最重要的 8 个工程思想</h2>
+<pre><code class="language-text">① 确定性工作给代码，语义判断给模型
+
+② Capability 做工具粗筛，不承担完整 schema
+
+③ Skill 提供分析方法论，Scenario 决定 Skill
+
+④ Evidence 与模型上下文分离
+   完整证据留存，模型拿压缩视图
+
+⑤ Prompt 给预算预期，Registry 做硬预算
+
+⑥ Submission 强制证据充分性，不能只看“模型输出得像不像”
+
+⑦ Accept 后立即 Seal，建立不可逆的交卷边界
+
+⑧ Normalize / Validate 在模型之后再次验收
+</code></pre>
+<hr>
+<h2>20. 面试高频问答：最短版本</h2>
+<h4>Q1：为什么 <code>get_trace_overview</code> 不让模型自己调？</h4>
+<p>因为它属于确定性、无判断的首次发现；preflight 先执行，可以减少 token / latency / tool budget，并消灭参数错误和重复调用。</p>
+<h4>Q2：preload 算不算假的 Evidence？</h4>
+<p>不算。它直接走 <code>invoke()</code>，真实消耗预算、写 Evidence、写 audit，和模型调用具有同样的证据效力。</p>
+<h4>Q3：Readiness Gate 是不是“缺输入就失败”？</h4>
+<p>当前不是。用户输入缺失主要是 <code>info / warning</code>；生产里的 <code>error</code> 分支主要来自工具不可用，而当前场景候选工具都只要求 <code>TRACE_DATABASE</code>，所以基本不会触发。它当前更偏透明化 / 审计契约。</p>
+<h4>Q4：Capability 是数据库 schema 吗？</h4>
+<p>不是。是对底层 schema 的语义化、有损投影，用于工具和 Skill 门控。</p>
+<h4>Q5：模型怎么知道真正 schema？</h4>
+<p>Skill reference + <code>query_trace_sql</code> + repository 运行时列探测。</p>
+<h4>Q6：Skill 是不是全加载？</h4>
+<p>不是。公共 <code>trace-analysis</code> + 1 个场景 Skill + 可选 <code>perf-sample-analysis</code>。</p>
+<h4>Q7：为什么每次要创建 Agent？</h4>
+<p>不是因为 Agent 重，而是 Skill / 配置随 Scenario 变化，需要每次组装一个轻量 Agent Definition；真正的 SDK Session 每 Run 隔离。</p>
+<h4>Q8：Agent 能不能跨 Run 复用？</h4>
+<p>可以，只要不持有 run-specific mutable state。当前项目的 Local Agent 就这么复用。</p>
+<h4>Q9：为什么 submit 后还要 seal？</h4>
+<p>为了防止 accepted 后继续取证、继续改结论，形成真正的封盘边界。</p>
+<h4>Q10：为什么有两种 repair？</h4>
+<p>Submission reject 是“证据不够，要继续取证”；Parse repair 是“证据已经够，只修输出结构”。</p>
+<hr>
+<h2>21. 最终背诵版</h2>
+<blockquote>
+<p><strong>DitingAgent 是一个“确定性工作流 + LLM Agent”的 Trace 分析系统。先把 htrace 转成 SQLite，再用 capability 做工具粗筛、按 Scenario 路由 Skill；Agent Definition 只保存配置，真正的 Session / Evidence / Budget / Submission State 都属于单次 Run。进入 Agent 前，preflight 先完成所有不需要模型判断的首次发现，并生成透明的 readiness contract。进入 SDK Loop 后，模型通过 MCP 调 Trace 工具，完整结果进入 EvidenceStore，模型只拿压缩视图；工具预算由 Registry 硬限制，模型必须通过 Submission Policy 证明关键证据已经取到，提交成功后立即 Seal。最后由 Normalize 和 Validator 做确定性验收，再 Render 成报告，并把本次经验写回 Memory。</strong></p>
+</blockquote>
+<h3>最核心的一句话</h3>
+<blockquote>
+<p><strong>Definition 可复用，Session 要隔离；确定性的事情留给代码，需要语义判断的事情留给模型；最后用 Evidence、Budget、Submission、Seal、Validation 把模型约束在一个可审计、可验证、可收敛的闭环里。</strong></p>
+</blockquote>
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wbhlucky.github.io/2026/09/26/2026-09-26-ditingagent-agent-loop-review/" data-id="cuid20260926ditingagent" data-title="DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop" class="article-share-link"><span class="fa fa-share">Share</span></a>
+
+
+
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ai-agent/" rel="tag">AI Agent</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" rel="tag">架构分析</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/claude-code/" rel="tag">Claude Code</a></li></ul>
+
+    </footer>
+  </div>
+
+
+<nav id="article-nav">
+
+    <a href="/2026/09/26/2026-09-26-agent-skill-complete-guide/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">Agent Skill 完整理解：从 SKILL.md 到渐进式加载的能力包设计</div>
+    </a>
+
+
+</nav>
+
+
+</article>
+
+
+</section>
+
+          <aside id="sidebar">
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Categories</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/">AI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E5%88%86%E6%9E%90/">技术分析</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E8%B6%8B%E5%8A%BF/">技术趋势</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">系统架构</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/">职业发展</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/%E6%8A%80%E6%9C%AF%E9%9D%A2%E8%AF%95/">技术面试</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/">软件开发</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/">AI Agents</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/">Software Engineering</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/System-Design/">System Design</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/%E4%BA%BA%E6%9C%BA%E5%8D%8F%E4%BD%9C/">人机协作</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/C/">C++</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/">系统编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/%E9%AB%98%E6%80%A7%E8%83%BD%E6%9C%8D%E5%8A%A1%E5%99%A8/">高性能服务器</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/">GitHub</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/CI-CD/">CI/CD</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/">Jekyll</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/Blogging/">Blogging</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/">Web Automation</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/">Testing</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/Security/">Security</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/">Zotero</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/">API</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/%E9%A1%B9%E7%9B%AE%E5%BC%80%E5%8F%91/">项目开发</a></li></ul></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">架构设计</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/">CLI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/AI%E6%99%BA%E8%83%BD%E4%BD%93/">AI智能体</a></li></ul></li></ul></li></ul></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tags</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI-Native/" rel="tag">AI-Native</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Codex/" rel="tag">Codex</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OpenAI/" rel="tag">OpenAI</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" rel="tag">范式转移</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" rel="tag">软件工程</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tag Cloud</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/AI-Native/" style="font-size: 10px;">AI-Native</a> <a href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" style="font-size: 20px;">AI智能体</a> <a href="/tags/Codex/" style="font-size: 10px;">Codex</a> <a href="/tags/OpenAI/" style="font-size: 10px;">OpenAI</a> <a href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" style="font-size: 10px;">范式转移</a> <a href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" style="font-size: 10px;">软件工程</a>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/">2026</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        <li>
+          <a href="/2026/09/26/2026-09-26-ditingagent-agent-loop-review/">DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-agent-skill-complete-guide/">Agent Skill 完整理解：从 SKILL.md 到渐进式加载的能力包设计</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/06/20/2026-06-20-ai-harness-engineering/">AI 编码智能体的工作环境保护框架工程：从入门到顶点项目</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/06/20/2026-06-20-ai-software-engineering/">当软件工程不再由人类写代码 —— OpenAI Codex 驱动的 AI 原生开发范式</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/03/17/2026-03-17-dancing-with-eight-part-essay-interviews-in-ai-era/">大模型时代下，开发者如何与&#34;八股文&#34;面试共舞？</a>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+
+</aside>
+
+      </div>
+      <footer id="footer">
+
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      <p>&copy; 2026 John Doe<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a></p>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+
+    <a href="/" class="mobile-nav-link">Home</a>
+
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+
+</nav>
+
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  <script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>
