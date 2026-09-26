@@ -99,8 +99,12 @@
 
     <div class="e-content article-entry" itemprop="articleBody">
 <h2>1. Skill 是什么</h2>
-<p><strong>Skill 是 Agent 的一种可复用专业能力包，核心入口是 <code>SKILL.md</code>。</strong></p>
-<p>一个 Skill 通常是一个目录：</p>
+<p><strong>Skill 是 Agent 的一种可复用专业能力包，核心入口是 <code>SKILL.md</code>。</strong>
+System Prompt
+→ 告诉模型：有哪些 Skill + Skill 的入口/根路径在哪里</p>
+<p>SKILL.md
+→ 告诉模型：这个 Skill 具体怎么做 + 它依赖哪些 Reference + Reference 的准确路径
+一个 Skill 通常是一个目录：</p>
 <pre><code class="language-text">cold-start-analysis/
 ├── SKILL.md
 ├── references/

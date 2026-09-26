@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+
+  <title>报告自动生成复盘：Agent 出结论，代码出页面 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="复盘报告自动生成的完整链路：Agent 只产出结构化诊断结论，SQLite 保存事实数据，ProjectionBuilder 把两者拼成页面数据，Jinja2 与 JS 再渲染成 HTML；并讲清 Evidence 证据链、Validation 校验机制与各环节的职责红线。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="报告自动生成复盘：Agent 出结论，代码出页面">
+<meta property="og:url" content="https://wbhlucky.github.io/2026/09/26/2026-09-26-report-generation-review/">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="复盘报告自动生成的完整链路：Agent 只产出结构化诊断结论，SQLite 保存事实数据，ProjectionBuilder 把两者拼成页面数据，Jinja2 与 JS 再渲染成 HTML；并讲清 Evidence 证据链、Validation 校验机制与各环节的职责红线。">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="AI Agent">
+<meta property="article:tag" content="AI智能体">
+<meta property="article:tag" content="架构分析">
+<meta name="twitter:card" content="summary">
+
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+
+
+    <link rel="shortcut icon" href="/favicon.png">
+
+
+
+<link rel="stylesheet" href="/css/style.css">
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+
+          <a class="main-nav-link" href="/">Home</a>
+
+          <a class="main-nav-link" href="/archives">Archives</a>
+
+      </nav>
+      <nav id="sub-nav">
+
+
+          <a class="nav-icon" href="/atom.xml" title="RSS Feed"><span class="fa fa-rss"></span></a>
+
+        <a class="nav-icon nav-search-btn" title="Search"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-2026-09-26-report-generation-review" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/09/26/2026-09-26-report-generation-review/" class="article-date">
+  <time class="dt-published" datetime="2026-09-25T16:00:00.000Z" itemprop="datePublished">2026-09-26</time>
+</a>
+
+  <div class="article-category"><a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a>&#x25BA;<a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a></div>
+
+  </div>
+  <div class="article-inner">
+
+
+      <header class="article-header">
+
+
+    <h1 class="p-name article-title" itemprop="headline name">报告自动生成复盘：Agent 出结论，代码出页面</h1>
+
+
+      </header>
+
+    <div class="e-content article-entry" itemprop="articleBody">
+<h2>一、核心设计原则</h2>
+<blockquote>
+<p><strong>Agent 负责回答"Trace 到底有什么问题、为什么有问题"；报告系统负责把这个答案 + Trace 数据库里的事实，重新组织成一个 HTML 页面。</strong></p>
+</blockquote>
+<p>两个关键认知：</p>
+<ol>
+<li><strong>HTML 不是 Agent 生成的。Skill 也不是生成 HTML。</strong></li>
+<li><strong>Agent 产出结构化诊断结果，SQLite 保存原始/计算后的性能数据，Projection 把两者拼成"页面数据"，Jinja + JS 再把页面数据变成 HTML。</strong></li>
+</ol>
+<hr>
+<h2>二、Skill 的真正职责</h2>
+<blockquote>
+<p><strong>Skill 不只是约束"输出格式"，还约束 Agent 的分析方法和内容标准。</strong></p>
+</blockquote>
+<p>Skill 规定：</p>
+<ul>
+<li>Agent 怎么分析（分析方法）</li>
+<li>什么算证据（证据标准）</li>
+<li>Finding 要包含什么（内容标准）</li>
+</ul>
+<pre><code>Skill
+  ↓
+规定 Agent 怎么分析、什么算证据、Finding 要包含什么
+  ↓
+Agent + LLM
+  ↓
+输出结构化 AnalysisResult
+</code></pre>
+<p>Skill 文件（如 <code>report-standardCN.md</code>）实际定义的是：</p>
+<ul>
+<li>必须有严重性（severity）</li>
+<li>必须说明状态（observed / suspected / confirmed）</li>
+<li>必须有证据（evidence_ids）</li>
+<li>必须有推理链（evidence → analysis → conclusion）</li>
+<li>必须有建议（recommendation）</li>
+<li>必须有回归验证方法（validation）</li>
+<li>已确定问题区间时提供 problem_interval</li>
+</ul>
+<hr>
+<h2>三、完整链路总览</h2>
+<pre><code>Skill
+  ↓
+规定 Agent 怎么分析、什么算证据、Finding 要包含什么
+  ↓
+Agent + LLM
+  ↓
+输出结构化 AnalysisResult
+  ↓
+Validation
+  ↓
+校验字段、状态、证据引用、置信度、problem_interval 等
+  ↓
+校验通过
+  ↓
+固定的 Python 代码
+  ↓
+读取：
+  ① Agent 的 AnalysisResult
+  ② Evidence
+  ③ SQLite 里的 Trace 数据
+  ↓
+ProjectionBuilder
+  ↓
+自动计算 timeline / perf / frame / flame graph 等报告数据
+  ↓
+Jinja2 固定模板
+  ↓
+report.html
+</code></pre>
+<hr>
+<h2>四、Agent 与固定代码的职责分工</h2>
+<h3>Agent 决定"结论是什么"</h3>
+<p>例如：</p>
+<blockquote>
+<p>主线程 CPU 负载过高，导致关键窗口掉帧。</p>
+</blockquote>
+<p>Agent 产出：</p>
+<pre><code class="language-json">{
+  &quot;problem_interval&quot;: { &quot;start&quot;: 12.3, &quot;end&quot;: 12.8 },
+  &quot;finding&quot;: &quot;主线程计算负载过高&quot;,
+  &quot;evidence_ids&quot;: [&quot;E10&quot;, &quot;E11&quot;],
+  &quot;severity&quot;: &quot;high&quot;,
+  &quot;confidence&quot;: 0.93,
+  &quot;recommendation&quot;: &quot;降低主线程计算负载&quot;
+}
+</code></pre>
+<h3>固定代码决定"怎么把这个结论展示出来"</h3>
+<p>自动生成报告结构：</p>
+<pre><code>摘要
+  ↓
+问题区间
+  ↓
+时间线
+  ↓
+帧率
+  ↓
+主线程热点
+  ↓
+火焰图
+  ↓
+证据
+  ↓
+建议
+</code></pre>
+<h3>报告不是只根据 Agent 输出生成的</h3>
+<pre><code>Agent 输出
+    +
+SQLite Trace 数据
+    +
+Evidence
+    ↓
+固定代码 Projection
+    ↓
+HTML
+</code></pre>
+<p>例如 Agent 只告诉系统 <code>problem_interval = 12.3s ~ 12.8s</code>，Projection 会自己去 SQLite 查：</p>
+<ul>
+<li>12.3 ~ 12.8s 有哪些线程？</li>
+<li>哪些线程在运行？</li>
+<li>CPU 怎么占用？</li>
+<li>发生了哪些帧？</li>
+<li>有哪些热点？</li>
+</ul>
+<p>然后把这些数据画进报告。</p>
+<hr>
+<h2>五、系统四层架构</h2>
+<h3>第一层：Agent 分析层</h3>
+<p>回答：<strong>"这个 Trace 有什么问题？"</strong></p>
+<p>负责：</p>
+<ul>
+<li>LLM 推理</li>
+<li>Skill 指导分析方向</li>
+<li>Tool 查询数据</li>
+<li>Evidence 收集</li>
+<li>Finding 形成</li>
+<li>AnalysisResult 输出</li>
+</ul>
+<h3>第二层：数据投影层（Projection）</h3>
+<p>回答：<strong>"为了展示这个分析结果，页面需要哪些数据？"</strong></p>
+<p>负责：</p>
+<ul>
+<li>ProjectionBuilder 读取 AnalysisResult + Evidence + SQLite</li>
+<li>确定性地计算 timeline / perf / frame / flame tree</li>
+<li>整理为页面所需的数据结构（Report View Model）</li>
+</ul>
+<blockquote>
+<p>Projection = 把内部数据"投影"为报告视图模型</p>
+</blockquote>
+<h3>第三层：HTML 渲染层</h3>
+<p>回答：<strong>"把这些数据塞到 HTML 里。"</strong></p>
+<p>负责：</p>
+<ul>
+<li>Jinja2 模板渲染</li>
+<li>将数据嵌入 HTML 模板</li>
+<li>输出 report.html</li>
+</ul>
+<h3>第四层：浏览器交互层</h3>
+<p>回答：<strong>"用户打开网页之后，怎么交互和画图？"</strong></p>
+<p>负责：</p>
+<ul>
+<li>JavaScript 读取 REPORT 数据</li>
+<li>Canvas 绘制时间线、火焰图</li>
+<li>Tooltip、Zoom、Filter、Drawer 等交互</li>
+</ul>
+<hr>
+<h2>六、数据源双源模型</h2>
+<h3>数据源 A：Agent（诊断结论）</h3>
+<p>提供：</p>
+<ul>
+<li>summary</li>
+<li>findings</li>
+<li>severity</li>
+<li>confidence</li>
+<li>recommendation</li>
+</ul>
+<h3>数据源 B：SQLite（真实 Trace 数据）</h3>
+<p>提供：</p>
+<ul>
+<li>thread execution</li>
+<li>CPU</li>
+<li>frame jank</li>
+<li>startup module</li>
+<li>scheduling</li>
+<li>IPC</li>
+<li>render</li>
+</ul>
+<h3>Projection 是中间的"拼接层"</h3>
+<pre><code>             ┌─────────────┐
+             │ Agent 输出   │
+             │ Analysis    │
+             └──────┬──────┘
+                    │
+                    ▼
+              Projection
+                    ▲
+                    │
+             ┌──────┴──────┐
+             │ SQLite      │
+             │ Trace事实    │
+             └─────────────┘
+</code></pre>
+<hr>
+<h2>七、Evidence 证据链</h2>
+<p>Evidence 是 Agent 分析过程中的"证据链"：</p>
+<pre><code>E1  线程 MainThread 在 120ms 内占用 CPU
+E2  该窗口发生 3 次 VSync Miss
+E3  MainThread 执行某函数 85ms
+
+Agent 结论：主线程高负载导致掉帧
+    ↓
+finding → E1, E2, E3
+</code></pre>
+<p>系统有 <code>EvidenceIndex</code>，可根据 evidence ID 快速找到对应证据。</p>
+<p>Projection 也要读 Evidence，因为有些页面内容不是直接查 SQLite 就够的——例如 Agent 做过什么分析、中间计算结果等，这些信息保存在 Evidence 中。</p>
+<hr>
+<h2>八、Validation 校验机制</h2>
+<blockquote>
+<p>LLM 输出不能直接相信。</p>
+</blockquote>
+<p>Validation 检查：</p>
+<ul>
+<li>字段完整性（title、severity、status、confidence、evidence_ids 等）</li>
+<li>字段合法性（如 confidence 必须在 0~1 之间）</li>
+<li>证据引用正确性（避免同一个 evidence 被多个 finding 重复引用）</li>
+</ul>
+<p>校验不通过：</p>
+<ul>
+<li>返回 rejected-findings.json + AnalysisValidationError</li>
+<li>report.html 不会生成</li>
+</ul>
+<p>校验通过才进入报告生成阶段。</p>
+<hr>
+<h2>九、ProjectionBuilder 详解</h2>
+<h3>为什么代码量大（3887 行）？</h3>
+<p>因为它承担了大量"确定性计算"：</p>
+<ul>
+<li>查询线程</li>
+<li>筛选线程</li>
+<li>计算时间区间</li>
+<li>选择 focus thread</li>
+<li>计算热点</li>
+<li>构造火焰图树</li>
+<li>构造时间线</li>
+<li>计算启动模块排序</li>
+<li>计算帧信息</li>
+</ul>
+<p>这些都不应该交给 LLM，本质是<strong>报告的数据工程层</strong>。</p>
+<h3>Timeline 类型决定逻辑</h3>
+<pre><code>有没有 completion_latency？
+  → 是：完成时延时间线
+  → 否：有没有 cold_start？
+    → 是：冷启动时间线
+    → 否：有没有帧率证据？
+      → 是：掉帧时间线
+      → 否：available = false
+</code></pre>
+<p>页面类型不是模型临时决定的，而是 Projection 根据已有数据决定的。</p>
+<h3>图表数据是渲染时重新查数据库</h3>
+<p>AnalysisResult 里面不会塞大量原始数据（5000个线程事件、3000个CPU采样、1000个frame），模型只负责"哪里有问题"。报告图表自己需要"这个问题区间里到底发生了什么"，因此由 Projection 在渲染时重新查 SQLite 计算。</p>
+<hr>
+<h2>十、Renderer 与 Jinja2</h2>
+<h3>Renderer 非常薄（约 75 行）</h3>
+<p>因为它不负责分析，只负责把已经准备好的数据塞进 HTML 模板：</p>
+<pre><code>数据 → Jinja2 → HTML
+</code></pre>
+<h3>Jinja2 是服务端 HTML 模板引擎</h3>
+<p>模板中写 <code>{{ analysis.summary }}</code>，渲染时替换为实际值。</p>
+<h3>REPORT 数据对象</h3>
+<p>Renderer 最终会在 HTML 中注入一个 JavaScript 对象：</p>
+<pre><code class="language-javascript">const REPORT = {
+    &quot;timeline&quot;: {...},
+    &quot;perf&quot;: {...},
+    &quot;startup_modules&quot;: {...}
+};
+</code></pre>
+<p>这个 REPORT 就是 Projection 生成的页面数据。</p>
+<h3>浏览器端可视化</h3>
+<pre><code>Browser → JavaScript → 读取 REPORT → 画图
+
+renderTimeline(REPORT.timeline) → createCanvasTimeline() → Canvas → 画时间线
+REPORT.perf → createPerfFlame() → Canvas → 火焰图
+</code></pre>
+<hr>
+<h2>十一、Case 目录文件说明</h2>
+<p>系统保存"这个分析任务完整的生命周期证据"：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>run.json</td>
+<td>这次运行是谁、什么时候、分析哪个 case</td>
+</tr>
+<tr>
+<td>preflight-report.json</td>
+<td>Trace 输入检查结果</td>
+</tr>
+<tr>
+<td>analysis-checkpoint.json</td>
+<td>Agent 阶段产生的分析状态/结果</td>
+</tr>
+<tr>
+<td>findings.json</td>
+<td>最终 findings</td>
+</tr>
+<tr>
+<td>evidence.json</td>
+<td>分析过程中形成的证据</td>
+</tr>
+<tr>
+<td>validation.json</td>
+<td>最终 AnalysisResult 有没有通过契约验证</td>
+</tr>
+<tr>
+<td>agent-log.jsonl</td>
+<td>Agent 运行过程日志</td>
+</tr>
+<tr>
+<td>report.html</td>
+<td>最终用户看的可视化报告</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>十二、职责红线（绝对不要搞混）</h2>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>负责</th>
+<th>不负责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Agent</strong></td>
+<td>分析、推理、诊断、给 evidence、给 recommendation</td>
+<td>不写 HTML、不写 CSS、不画图</td>
+</tr>
+<tr>
+<td><strong>Skill</strong></td>
+<td>分析方法、专业知识、输出规范、evidence 标准、finding 标准</td>
+<td>不写 HTML</td>
+</tr>
+<tr>
+<td><strong>Projection</strong></td>
+<td>查 DB、算 timeline、算 perf、算 flame tree、整理 view model</td>
+<td>不判断"真正原因是什么"、不让 LLM 再分析一次</td>
+</tr>
+<tr>
+<td><strong>Renderer</strong></td>
+<td>Jinja2 render、把数据放进去</td>
+<td>不 SQL、不查线程、不判断根因、不选择 finding</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>十三、类比记忆法</h2>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>对应组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>记者</strong></td>
+<td>Agent</td>
+<td>去调查发生了什么、为什么发生、证据是什么、怎么解决，最后写调查结论</td>
+</tr>
+<tr>
+<td><strong>资料库</strong></td>
+<td>SQLite</td>
+<td>保存原始事实</td>
+</tr>
+<tr>
+<td><strong>数据编辑</strong></td>
+<td>Projection</td>
+<td>把资料库里的各种原始数据 + 记者的调查结论，整理成报告需要的图表和字段</td>
+</tr>
+<tr>
+<td><strong>排版员</strong></td>
+<td>Renderer</td>
+<td>把整理好的内容排成 HTML 页面</td>
+</tr>
+<tr>
+<td><strong>前端展示</strong></td>
+<td>Browser JS</td>
+<td>用户打开报告后的放大、缩小、拖时间线、查看火焰图、点击 evidence 等交互</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>十四、完整流程（以分析"小红书世界杯直播卡顿"为例）</h2>
+<pre><code>① 用户提交 Trace
+        │
+        ▼
+② htrace → SQLite（Trace 预处理）
+        │
+        ▼
+③ Agent 启动
+        │
+        ▼
+④ Skill 告诉 Agent：怎么分析直播卡顿、什么算证据、finding 应该包含什么
+        │
+        ▼
+⑤ Agent 调 Tool
+        │
+        ▼
+⑥ Tool 查询 SQLite
+        │
+        ▼
+⑦ Agent 得到 Evidence
+        │
+        ▼
+⑧ Agent 推理：主线程负载高 → UI任务不能及时完成 → VSync miss → 掉帧
+        │
+        ▼
+⑨ Agent 输出 AnalysisResult
+        │
+        ▼
+⑩ Validation（合格？）
+        ├── 否 → rejected-findings.json
+        └── 是
+             │
+             ▼
+⑪ report.render
+        │
+        ▼
+⑫ ProjectionBuilder
+    读取：AnalysisResult + Evidence + SQLite
+    重新计算：timeline / perf / frame / startup_modules / flame tree
+        │
+        ▼
+⑬ Report View Model
+        │
+        ▼
+⑭ Jinja2
+        │
+        ▼
+⑮ report.html
+        │
+        ▼
+⑯ 浏览器打开
+        │
+        ▼
+⑰ JS 读取 REPORT
+    ├── 画时间线
+    ├── 画火焰图
+    ├── 画帧率
+    ├── tooltip
+    └── evidence drawer
+</code></pre>
+<hr>
+<h2>十五、面试核心答案</h2>
+<blockquote>
+<p>这个系统把"分析"和"展示"彻底解耦：Agent 通过 Skill 和 Tool 对 Trace 做分析，输出经过校验的结构化 AnalysisResult；报告生成阶段由 Projection 层重新读取校验后的分析结果、Evidence 和 SQLite 中的 Trace 数据，确定性地计算时间线、性能和火焰图等视图数据，再交给 Jinja2 渲染成自包含 HTML，浏览器端 JavaScript 只负责交互式可视化。因此模型不直接生成 HTML，也不负责图表数据计算。</p>
+</blockquote>
+<hr>
+<h2>十六、各组件职责一句话总结</h2>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>一句话</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Skill</strong></td>
+<td>决定 Agent"分析出什么"（分析方法 + 输出规范）</td>
+</tr>
+<tr>
+<td><strong>AnalysisResult</strong></td>
+<td>决定报告"讲什么"（结构化诊断结果）</td>
+</tr>
+<tr>
+<td><strong>Projection</strong></td>
+<td>决定报告"展示什么数据"（页面数据计算）</td>
+</tr>
+<tr>
+<td><strong>Jinja2</strong></td>
+<td>决定报告"长什么页面"（HTML 模板渲染）</td>
+</tr>
+<tr>
+<td><strong>浏览器 JS</strong></td>
+<td>决定报告"怎么交互"（交互式可视化）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>最核心的一条线：</strong></p>
+<pre><code>Skill → Agent 分析 → AnalysisResult → Validation → Projection → Jinja2 → HTML → 浏览器 JS 可视化
+</code></pre>
+<p><strong>SQLite 是贯穿其中的数据事实源。</strong></p>
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wbhlucky.github.io/2026/09/26/2026-09-26-report-generation-review/" data-id="cuid20260926report" data-title="报告自动生成复盘：Agent 出结论，代码出页面" class="article-share-link"><span class="fa fa-share">Share</span></a>
+
+
+
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ai-agent/" rel="tag">AI Agent</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" rel="tag">架构分析</a></li></ul>
+
+    </footer>
+  </div>
+
+
+<nav id="article-nav">
+
+    <a href="/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么</div>
+    </a>
+
+
+</nav>
+
+
+</article>
+
+
+</section>
+
+          <aside id="sidebar">
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Categories</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/">AI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E5%88%86%E6%9E%90/">技术分析</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E8%B6%8B%E5%8A%BF/">技术趋势</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">系统架构</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/">职业发展</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/%E6%8A%80%E6%9C%AF%E9%9D%A2%E8%AF%95/">技术面试</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/">软件开发</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/">AI Agents</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/">Software Engineering</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/System-Design/">System Design</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/%E4%BA%BA%E6%9C%BA%E5%8D%8F%E4%BD%9C/">人机协作</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/C/">C++</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/">系统编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/%E9%AB%98%E6%80%A7%E8%83%BD%E6%9C%8D%E5%8A%A1%E5%99%A8/">高性能服务器</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/">GitHub</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/CI-CD/">CI/CD</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/">Jekyll</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/Blogging/">Blogging</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/">Web Automation</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/">Testing</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/Security/">Security</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/">Zotero</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/">API</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/%E9%A1%B9%E7%9B%AE%E5%BC%80%E5%8F%91/">项目开发</a></li></ul></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">架构设计</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/">CLI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/AI%E6%99%BA%E8%83%BD%E4%BD%93/">AI智能体</a></li></ul></li></ul></li></ul></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tags</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI-Native/" rel="tag">AI-Native</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Codex/" rel="tag">Codex</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OpenAI/" rel="tag">OpenAI</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" rel="tag">范式转移</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" rel="tag">软件工程</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tag Cloud</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/AI-Native/" style="font-size: 10px;">AI-Native</a> <a href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" style="font-size: 20px;">AI智能体</a> <a href="/tags/Codex/" style="font-size: 10px;">Codex</a> <a href="/tags/OpenAI/" style="font-size: 10px;">OpenAI</a> <a href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" style="font-size: 10px;">范式转移</a> <a href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" style="font-size: 10px;">软件工程</a>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/">2026</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        <li>
+          <a href="/2026/09/26/2026-09-26-report-generation-review/">报告自动生成复盘：Agent 出结论，代码出页面</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/">上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-mcp-protocol-review/">MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-claude-agent-sdk-review/">Claude Agent SDK 技术复盘：模块、Skill、自定义 Tool 与自研边界</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-ditingagent-agent-loop-review/">DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop</a>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+
+</aside>
+
+      </div>
+      <footer id="footer">
+
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      <p>&copy; 2026 John Doe<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a></p>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+
+    <a href="/" class="mobile-nav-link">Home</a>
+
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+
+</nav>
+
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  <script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>

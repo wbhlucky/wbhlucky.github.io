@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+
+  <title>上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="把 Context、Prompt、System Prompt、User Prompt、Tool、Skill、Memory、MCP 这几个最容易混淆的概念一次讲清：模型这一轮实际拿到什么、静态与动态部分从哪来、额外知识如何进入上下文、工具如何被调用，以及 MCP 真正标准化的是哪一层。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么">
+<meta property="og:url" content="https://wbhlucky.github.io/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="把 Context、Prompt、System Prompt、User Prompt、Tool、Skill、Memory、MCP 这几个最容易混淆的概念一次讲清：模型这一轮实际拿到什么、静态与动态部分从哪来、额外知识如何进入上下文、工具如何被调用，以及 MCP 真正标准化的是哪一层。">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="AI Agent">
+<meta property="article:tag" content="AI智能体">
+<meta property="article:tag" content="架构分析">
+<meta name="twitter:card" content="summary">
+
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+
+
+    <link rel="shortcut icon" href="/favicon.png">
+
+
+
+<link rel="stylesheet" href="/css/style.css">
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+
+          <a class="main-nav-link" href="/">Home</a>
+
+          <a class="main-nav-link" href="/archives">Archives</a>
+
+      </nav>
+      <nav id="sub-nav">
+
+
+          <a class="nav-icon" href="/atom.xml" title="RSS Feed"><span class="fa fa-rss"></span></a>
+
+        <a class="nav-icon nav-search-btn" title="Search"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-2026-09-26-context-prompt-skill-mcp-review" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/" class="article-date">
+  <time class="dt-published" datetime="2026-09-25T16:00:00.000Z" itemprop="datePublished">2026-09-26</time>
+</a>
+
+  <div class="article-category"><a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a>&#x25BA;<a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a></div>
+
+  </div>
+  <div class="article-inner">
+
+
+      <header class="article-header">
+
+
+    <h1 class="p-name article-title" itemprop="headline name">上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么</h1>
+
+
+      </header>
+
+    <div class="e-content article-entry" itemprop="articleBody">
+<p>这份笔记用于复盘 Agent Runtime 中几个最容易混淆的概念：<strong>Context、Prompt、System Prompt、User Prompt、Tool、Skill、Memory、MCP</strong>。</p>
+<p>核心目标不是记 API，而是搞清楚：</p>
+<blockquote>
+<p><strong>模型这一轮到底看到了什么、这些内容从哪里来、模型如何获得额外知识、模型如何调用工具，以及 MCP 到底标准化了哪一层。</strong></p>
+</blockquote>
+<hr>
+<h3>1. 先建立最核心的关系</h3>
+<p>可以先记住这张图：</p>
+<pre><code class="language-text">                    Agent Runtime
+                         │
+                         ▼
+                  ┌─────────────┐
+                  │   Context   │
+                  │ 模型这一轮   │
+                  │ 真正看到的   │
+                  └─────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+   System Prompt     User Prompt     Tool Results
+          │              │              │
+          │              │              └─ 工具执行产生的事实
+          │              └─ 本次任务输入
+          └─ 行为规则、角色、能力说明
+
+             Context 中还可能出现：
+
+        Skill 正文 / Memory / History / Evidence
+</code></pre>
+<p>最重要的一句话：</p>
+<blockquote>
+<p><strong>Context 是“大容器”，Prompt 是其中用于指导模型的文本，System Prompt 和 User Prompt 是 Prompt 的不同层次。</strong></p>
+</blockquote>
+<p>因此：</p>
+<pre><code class="language-text">Context ≠ Prompt
+Prompt ⊂ Context
+</code></pre>
+<p>更准确地说，Context 是模型推理时接收到的完整上下文集合，而 Prompt 是其中用于给模型指令和任务信息的部分。</p>
+<hr>
+<h2>2. 什么是 Context？</h2>
+<h3>2.1 Context 就是“这一轮模型实际拿到的全部信息”</h3>
+<p>例如一个 Agent 某一轮可能收到：</p>
+<pre><code class="language-text">System Prompt
++
+User Prompt
++
+历史对话
++
+Skill 正文
++
+Memory
++
+工具定义 / Tool Schema
++
+前置证据
++
+工具调用结果
+</code></pre>
+<p>这些内容共同构成模型这一轮的 Context。</p>
+<p>所以分析 Agent 最重要的问题之一不是：</p>
+<blockquote>
+<p>“仓库里有什么知识？”</p>
+</blockquote>
+<p>而是：</p>
+<blockquote>
+<p><strong>“这些知识最终有没有进入 Context？”</strong></p>
+</blockquote>
+<p>仓库里存在一个文件，并不代表模型就看到了这个文件。</p>
+<hr>
+<h3>2.2 Context 有“静态部分”和“动态部分”</h3>
+<p>可以粗略理解成：</p>
+<pre><code class="language-text">初始 Context
+├── System Prompt
+├── User Prompt
+├── Tool Schema
+├── Skill Metadata
+└── 其他初始化信息
+
+随着 Agent Loop 运行
+        ↓
+Context 动态追加
+├── Tool Call
+├── Tool Result
+├── Skill 正文
+├── Memory
+├── 中间分析结果
+└── 后续消息
+</code></pre>
+<p>所以 Agent 不是“一次把所有东西塞给模型”，而是：</p>
+<blockquote>
+<p><strong>随着推理和工具调用不断扩展 Context。</strong></p>
+</blockquote>
+<p>这也是为什么 Agent 会出现 Context Budget、Context Window、Token Cost、历史裁剪等工程问题。</p>
+<hr>
+<h2>3. 什么是 Prompt？</h2>
+<p>Prompt 可以理解成：</p>
+<blockquote>
+<p><strong>告诉模型“你是谁、应该怎么做、现在要解决什么问题”的文字指令。</strong></p>
+</blockquote>
+<p>常见的 Prompt 层次：</p>
+<pre><code class="language-text">System Prompt
+    ↓
+规定角色、行为、规则、约束
+
+User Prompt
+    ↓
+告诉模型这次具体要做什么
+
+Developer Prompt / Instruction
+    ↓
+某些系统中还会有更高优先级的开发者规则
+</code></pre>
+<p>不同平台的消息层命名可能不同，但核心思想是一致的：</p>
+<blockquote>
+<p><strong>不同消息层具有不同的指令优先级和职责。</strong></p>
+</blockquote>
+<hr>
+<h2>4. System Prompt 到底是什么？</h2>
+<p>System Prompt 可以理解为 Agent 的“基础操作规范”。</p>
+<p>例如：</p>
+<pre><code class="language-text">你是一个 Trace 性能分析 Agent。
+
+分析时必须：
+1. 先获取基础信息
+2. 再检查关键事件
+3. 给出证据链
+4. 不允许无证据猜测
+5. 最终按照指定 Schema 输出
+</code></pre>
+<p>这些内容主要是在规定：</p>
+<pre><code class="language-text">你是谁
+你能做什么
+你应该怎么推理
+你有哪些限制
+输出必须遵守什么格式
+有哪些能力可以使用
+</code></pre>
+<p>所以 System Prompt 更偏向：</p>
+<blockquote>
+<p><strong>规则、方法、行为约束、能力说明。</strong></p>
+</blockquote>
+<hr>
+<h2>5. User Prompt 是什么？</h2>
+<p>User Prompt 更偏向“本次任务”。</p>
+<p>例如：</p>
+<pre><code class="language-json">{
+  &quot;trace_id&quot;: &quot;xxx&quot;,
+  &quot;scenario&quot;: &quot;completion-latency&quot;,
+  &quot;symptom&quot;: &quot;页面打开较慢&quot;,
+  &quot;device&quot;: &quot;xxx&quot;
+}
+</code></pre>
+<p>再加一句：</p>
+<pre><code class="language-text">请分析本次 Trace 并给出根因。
+</code></pre>
+<p>它回答的是：</p>
+<blockquote>
+<p><strong>“这一次具体分析什么？”</strong></p>
+</blockquote>
+<p>因此可以记成：</p>
+<pre><code class="language-text">System Prompt = 怎么做
+User Prompt   = 做什么
+Context       = 这一轮模型总共看到了什么
+</code></pre>
+<p>这是一组非常重要的概念区分。</p>
+<hr>
+<h2>6. Skill 到底是什么？</h2>
+<p>Skill 最好不要理解成：</p>
+<blockquote>
+<p>“一大段固定 Prompt。”</p>
+</blockquote>
+<p>更准确的理解是：</p>
+<blockquote>
+<p><strong>Skill = 一组面向特定任务的专业知识 / 方法论 / 操作说明，通常以文件形式存在，并支持按需加载。</strong></p>
+</blockquote>
+<p>例如：</p>
+<pre><code class="language-text">completion-latency-analysis
+├── SKILL.md
+├── references/
+├── examples/
+└── scripts/
+</code></pre>
+<p>里面可能写：</p>
+<pre><code class="language-text">什么叫 completion latency
+应该观察哪些 trace event
+如何定义起止点
+哪些证据可以支持某个根因
+常见误区是什么
+</code></pre>
+<hr>
+<h2>7. Skill 的关键设计：渐进式披露（Progressive Disclosure）</h2>
+<p>成熟的 Skill 架构通常不是：</p>
+<pre><code class="language-text">启动 Agent
+    ↓
+把整个 Skill 文件全部塞进 System Prompt
+</code></pre>
+<p>而更像：</p>
+<pre><code class="language-text">启动 Agent
+    ↓
+只告诉模型有哪些 Skill
+以及每个 Skill 是干什么的
+    ↓
+模型发现当前任务需要某个 Skill
+    ↓
+读取对应 SKILL.md
+    ↓
+SKILL.md 正文进入 Context
+    ↓
+需要进一步细节时
+再读取 references / examples / scripts
+</code></pre>
+<p>也就是：</p>
+<pre><code class="language-text">Level 1：Metadata
+    name
+    description
+        ↓
+    进入初始 Context
+
+Level 2：SKILL.md 正文
+        ↓
+    按需读取
+        ↓
+    进入 Context
+
+Level 3：references / resources
+        ↓
+    真正需要时再读取
+</code></pre>
+<p>因此：</p>
+<blockquote>
+<p><strong>Skill Metadata 可以出现在 System Prompt 中，但 Skill 正文不等于 System Prompt。</strong></p>
+</blockquote>
+<p>这是非常重要的区别。</p>
+<hr>
+<h2>8. 所以“模型怎么拿到 Skill 正文？”</h2>
+<p>核心就是：</p>
+<blockquote>
+<p><strong>需要一个可以把 Skill 文件内容读出来，并把读取结果返回给模型的机制。</strong></p>
+</blockquote>
+<p>最简单的形式就是文件读取工具：</p>
+<pre><code class="language-text">模型
+ ↓
+Read(&quot;.../SKILL.md&quot;)
+ ↓
+Runtime / Tool
+ ↓
+读取文件
+ ↓
+返回 SKILL.md 内容
+ ↓
+Tool Result
+ ↓
+进入 Context
+</code></pre>
+<p>因此：</p>
+<pre><code class="language-text">Skill Metadata
+= 告诉模型“有这个 Skill”
+
+Read / Skill Loader
+= 让模型“拿到这个 Skill 的正文”
+</code></pre>
+<p>这两者不是一回事。</p>
+<hr>
+<h2>9. Tool 是什么？</h2>
+<p>Tool 可以简单理解成：</p>
+<blockquote>
+<p><strong>模型能够请求 Agent Runtime 执行的一项外部能力。</strong></p>
+</blockquote>
+<p>例如：</p>
+<pre><code class="language-text">query_trace_sql
+read_file
+search_web
+execute_python
+inspect_perf_profile
+</code></pre>
+<p>模型本身只负责生成：</p>
+<pre><code class="language-json">{
+  &quot;tool&quot;: &quot;query_trace_sql&quot;,
+  &quot;arguments&quot;: {
+    &quot;sql&quot;: &quot;SELECT ...&quot;
+  }
+}
+</code></pre>
+<p>真正执行 SQL 的不是模型，而是 Runtime / Tool。</p>
+<p>执行完成后：</p>
+<pre><code class="language-text">Tool
+ ↓
+执行
+ ↓
+Tool Result
+ ↓
+进入 Context
+ ↓
+模型继续推理
+</code></pre>
+<p>所以 Tool 的作用是：</p>
+<blockquote>
+<p><strong>把模型从“只能处理已有文本”，扩展成“可以获取信息和执行动作”。</strong></p>
+</blockquote>
+<hr>
+<h2>10. Tool 和 Skill 的区别</h2>
+<p>这是 Agent 开发中非常容易混淆的一对概念。</p>
+<h4>Skill</h4>
+<p>偏“怎么做”：</p>
+<pre><code class="language-text">性能分析的方法论
+诊断步骤
+判断规则
+经验
+注意事项
+</code></pre>
+<h4>Tool</h4>
+<p>偏“做什么”：</p>
+<pre><code class="language-text">查询 Trace
+读取文件
+执行 SQL
+获取 profile
+计算指标
+</code></pre>
+<p>可以记成：</p>
+<pre><code class="language-text">Skill = 知识 / 方法论
+Tool  = 能力 / 动作
+</code></pre>
+<p>进一步可以理解成：</p>
+<pre><code class="language-text">Skill 告诉模型：
+“应该检查哪些东西、怎么判断”
+
+Tool 帮模型：
+“真的去把这些东西查出来”
+</code></pre>
+<hr>
+<h2>11. Evidence 又是什么？</h2>
+<p>Evidence 是本次任务真正产生的事实依据。</p>
+<p>例如：</p>
+<pre><code class="language-text">Main Thread
+Duration = 52ms
+CPU = 100%
+
+TaskRunner
+Duration = 31ms
+
+NativeWindowFlushBuffer
+Duration = 18ms
+</code></pre>
+<p>这些不是方法论，而是本次 Trace 的真实数据。</p>
+<p>所以可以区分：</p>
+<pre><code class="language-text">Skill
+    ↓
+告诉模型“怎么看”
+
+Tool
+    ↓
+帮模型“拿数据”
+
+Evidence
+    ↓
+本次分析“实际拿到了什么事实”
+
+LLM
+    ↓
+结合方法论 + 事实进行推理
+</code></pre>
+<hr>
+<h2>12. Memory 和 Skill 又有什么区别？</h2>
+<h4>Skill</h4>
+<p>更偏长期、稳定、结构化的领域知识：</p>
+<pre><code class="language-text">如何分析 completion latency
+如何判断 frame jank
+如何解读某类 Trace
+</code></pre>
+<h4>Memory</h4>
+<p>更偏“过去发生过什么，以及过去形成了什么经验”。</p>
+<p>例如：</p>
+<pre><code class="language-text">过去某类 Trace 经常出现某种模式
+过去处理某种问题时，某个证据特别有效
+某类场景之前已经验证过某种诊断路径
+</code></pre>
+<p>因此可以粗略理解成：</p>
+<pre><code class="language-text">Skill  = 专业知识
+Memory = 历史经验
+</code></pre>
+<p>两者都可以最终进入 Context，供模型推理使用。</p>
+<hr>
+<h2>13. MCP 到底是什么？</h2>
+<p>MCP 最容易被误解成：</p>
+<blockquote>
+<p>“模型调用工具的统一协议。”</p>
+</blockquote>
+<p>这个说法不够准确。</p>
+<p>更准确地说：</p>
+<blockquote>
+<p><strong>MCP（Model Context Protocol）主要标准化的是“AI 应用 / Agent 与外部能力提供方之间，如何发现、描述、调用和返回上下文”的协议。</strong></p>
+</blockquote>
+<p>例如一个 MCP Server 可以暴露：</p>
+<pre><code class="language-text">Tools
+Resources
+Prompts
+</code></pre>
+<p>其中最常被 Agent 使用的是 Tools。</p>
+<p>例如：</p>
+<pre><code class="language-text">MCP Server
+   │
+   ├── query_trace_sql
+   ├── get_trace_overview
+   └── inspect_perf_profile
+</code></pre>
+<p>客户端可以按 MCP 规定的方式发现这些能力以及对应 Schema。</p>
+<hr>
+<h2>14. MCP 真正标准化了什么？</h2>
+<p>核心可以理解为三个层面：</p>
+<pre><code class="language-text">1. 能力如何描述
+2. 能力如何发现
+3. 能力如何调用 / 返回结果
+</code></pre>
+<p>例如一个 Tool 可以有统一的结构化描述：</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;query_trace_sql&quot;,
+  &quot;description&quot;: &quot;查询 Trace 数据&quot;,
+  &quot;inputSchema&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;properties&quot;: {
+      &quot;sql&quot;: {
+        &quot;type&quot;: &quot;string&quot;
+      }
+    }
+  }
+}
+</code></pre>
+<p>这样 Agent Runtime 不需要为每个工具重新设计一套完全不同的“工具描述格式”。</p>
+<hr>
+<h2>15. MCP 并不等于 LLM API 协议</h2>
+<p>这是另一个特别容易混淆的点。</p>
+<p>可以把系统分成两段：</p>
+<pre><code class="language-text">         模型侧                         工具侧
+
+LLM API / Model Protocol        MCP
+       │                          │
+       ▼                          ▼
+模型如何表达 Tool Call       Agent 如何发现/调用外部能力
+</code></pre>
+<p>MCP 解决的是工具生态这一侧的问题。</p>
+<p>而不同模型厂商的 API 历史上可能有不同的消息格式、Tool Calling 格式、响应结构等。</p>
+<p>因此不能简单理解成：</p>
+<pre><code class="language-text">MCP = 所有模型都直接原生理解的语言
+</code></pre>
+<p>更准确的是：</p>
+<pre><code class="language-text">Agent Runtime
+    ↓
+MCP Client
+    ↓
+统一连接 MCP Server
+    ↓
+拿到工具定义 / Tool Result
+    ↓
+Runtime 再把这些信息适配成当前 LLM API 所需要的格式
+    ↓
+LLM
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong>MCP 可以统一“工具侧”的协议，但不意味着所有 LLM API 的消息协议因此自动变成完全相同。</strong></p>
+</blockquote>
+<hr>
+<h2>16. 为什么说 MCP 的价值在于“工具侧统一”？</h2>
+<p>传统方式经常是：</p>
+<pre><code class="language-text">Agent A ── 自己实现 ── Tool A
+Agent B ── 自己实现 ── Tool A
+Agent C ── 自己实现 ── Tool A
+</code></pre>
+<p>工具提供方需要针对不同 Agent 集成方式维护很多重复接口。</p>
+<p>采用 MCP 后，可以更接近：</p>
+<pre><code class="language-text">                    ┌── Agent A
+                    │
+MCP Server ──────────┼── Agent B
+                    │
+                    └── Agent C
+</code></pre>
+<p>多个兼容 MCP 的客户端可以按同一套 MCP 方式发现和调用工具。</p>
+<p>因此 MCP 的重要价值之一是：</p>
+<blockquote>
+<p><strong>把“工具提供方”和“Agent 应用”的耦合降低。</strong></p>
+</blockquote>
+<hr>
+<h2>17. 为什么还会出现 Adapter？</h2>
+<p>因为“工具侧统一”和“模型侧统一”不是同一回事。</p>
+<p>假设 MCP Client 已经拿到了：</p>
+<pre><code class="language-text">name
+├── query_trace_sql
+└── inputSchema
+</code></pre>
+<p>接下来仍然需要把这些工具信息交给具体的模型 API。</p>
+<p>不同模型 SDK / API 可能需要不同的消息结构。</p>
+<p>所以可能存在：</p>
+<pre><code class="language-text">MCP Tool Schema
+      ↓
+LLM Adapter
+      ↓
+OpenAI-style Tool Calling
+Anthropic-style Tool Calling
+其他模型 API 的 Tool Calling
+</code></pre>
+<p>这也是为什么“有 MCP”并不自动意味着 Agent 可以无条件直连任意模型。</p>
+<hr>
+<h2>18. “模型支持 MCP”到底是什么意思？</h2>
+<p>严格来说，需要区分：</p>
+<h4>MCP Server 支持</h4>
+<p>工具服务按照 MCP 暴露能力。</p>
+<h4>MCP Client 支持</h4>
+<p>Agent Runtime 可以连接 MCP Server，发现并调用能力。</p>
+<h4>Model 原生支持</h4>
+<p>模型 / 模型平台自身是否直接理解 MCP。</p>
+<p>在工程实践中，更常见的是：</p>
+<pre><code class="language-text">模型
+ ↓
+LLM API
+ ↓
+Agent Runtime
+ ↓
+MCP Client
+ ↓
+MCP Server
+ ↓
+Tool
+</code></pre>
+<p>所以最关键的不是一句“模型支不支持 MCP”，而是看：</p>
+<blockquote>
+<p><strong>整个 Agent Runtime 是否已经帮你把 MCP 能力接入当前模型调用链。</strong></p>
+</blockquote>
+<hr>
+<h2>19. Tool Schema、MCP Schema、LLM Tool Calling 是什么关系？</h2>
+<p>可以把它们分成三个层次：</p>
+<pre><code class="language-text">                 MCP
+        统一工具能力的描述/调用
+                 │
+                 ▼
+         MCP Tool Schema
+                 │
+                 ▼
+          Agent Runtime
+                 │
+          做协议适配 / 映射
+                 │
+                 ▼
+          LLM Tool Calling
+                 │
+                 ▼
+              Model
+</code></pre>
+<p>其中最容易混淆的是：</p>
+<blockquote>
+<p><strong>MCP 的 Tool Schema 和某一家模型 API 的 Tool Calling Schema 不是同一个东西。</strong></p>
+</blockquote>
+<p>它们可以表达类似信息，但属于不同协议层。</p>
+<hr>
+<h2>20. 一个完整的 Agent Loop 怎么串起来？</h2>
+<p>可以把整个流程记成：</p>
+<pre><code class="language-text">用户任务
+   ↓
+User Prompt
+   ↓
+Agent Runtime 构造初始 Context
+   │
+   ├── System Prompt
+   ├── User Prompt
+   ├── Tool Schema
+   ├── Skill Metadata
+   └── Memory / Evidence（如果有）
+   ↓
+LLM
+   ↓
+模型判断下一步
+   │
+   ├── 直接回答
+   │
+   └── Tool Call
+          ↓
+       Tool / MCP
+          ↓
+       执行真实操作
+          ↓
+       Tool Result
+          ↓
+       追加 Context
+          ↓
+       LLM 再次推理
+          ↓
+       ……循环……
+          ↓
+       Final Answer
+</code></pre>
+<p>而 Skill 的按需加载可以插在中间：</p>
+<pre><code class="language-text">LLM
+ ↓
+发现需要某 Skill
+ ↓
+Read / Skill Loader
+ ↓
+SKILL.md
+ ↓
+Skill 正文进入 Context
+ ↓
+继续推理
+</code></pre>
+<hr>
+<h2>21. 用一句话区分这几个概念</h2>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>核心问题</th>
+<th>简单理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Context</td>
+<td>模型这一轮看到了什么？</td>
+<td>总上下文</td>
+</tr>
+<tr>
+<td>Prompt</td>
+<td>应该怎么指导模型？</td>
+<td>指令文本</td>
+</tr>
+<tr>
+<td>System Prompt</td>
+<td>Agent 应该遵守什么规则？</td>
+<td>系统级规则</td>
+</tr>
+<tr>
+<td>User Prompt</td>
+<td>这次具体做什么？</td>
+<td>当前任务</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>这个领域应该怎么分析？</td>
+<td>专业方法论</td>
+</tr>
+<tr>
+<td>Tool</td>
+<td>怎么去获取数据/执行动作？</td>
+<td>外部能力</td>
+</tr>
+<tr>
+<td>Evidence</td>
+<td>这次实际拿到了什么事实？</td>
+<td>证据</td>
+</tr>
+<tr>
+<td>Memory</td>
+<td>过去积累了什么经验？</td>
+<td>历史经验</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>Agent 和外部能力如何标准化连接？</td>
+<td>工具生态协议</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>22. 最重要的几个认知</h2>
+<h4>认知 1</h4>
+<blockquote>
+<p><strong>文件存在 ≠ 模型看到了文件。</strong></p>
+</blockquote>
+<p>必须存在一条真正的链路：</p>
+<pre><code class="language-text">文件
+ ↓
+读取机制
+ ↓
+Tool Result / Message
+ ↓
+Context
+ ↓
+模型
+</code></pre>
+<hr>
+<h4>认知 2</h4>
+<blockquote>
+<p><strong>Skill Metadata 和 Skill 正文是两层东西。</strong></p>
+</blockquote>
+<pre><code class="language-text">Metadata
+= 让模型知道“有什么 Skill”
+
+正文
+= 让模型知道“这个 Skill 具体怎么做”
+</code></pre>
+<hr>
+<h4>认知 3</h4>
+<blockquote>
+<p><strong>Context 比 Prompt 大。</strong></p>
+</blockquote>
+<pre><code class="language-text">Context
+├── Prompt
+├── Tool Schema
+├── History
+├── Skill
+├── Memory
+├── Evidence
+└── Tool Results
+</code></pre>
+<hr>
+<h4>认知 4</h4>
+<blockquote>
+<p><strong>Tool 是执行层，Skill 是知识层。</strong></p>
+</blockquote>
+<pre><code class="language-text">Skill → 告诉模型怎么判断
+Tool  → 帮模型真的去查
+</code></pre>
+<hr>
+<h4>认知 5</h4>
+<blockquote>
+<p><strong>MCP 主要解决工具连接与描述标准化，不等于统一所有 LLM API。</strong></p>
+</blockquote>
+<pre><code class="language-text">MCP
+= 工具生态侧的标准化
+
+LLM Adapter
+= 模型调用协议侧的适配
+</code></pre>
+<hr>
+<h2>23. 最后用一个完整例子理解</h2>
+<p>假设任务是：</p>
+<pre><code class="language-text">“分析一次 App 启动慢的问题。”
+</code></pre>
+<h4>第一阶段：初始 Context</h4>
+<pre><code class="language-text">System Prompt
+└── 你是性能分析 Agent，必须基于证据分析
+
+User Prompt
+└── trace_id=123，scenario=cold-start
+
+Skill Metadata
+└── cold-start-analysis
+
+Tool Schema
+├── query_trace_sql
+├── get_trace_overview
+└── inspect_perf_profile
+</code></pre>
+<p>模型此时知道：</p>
+<pre><code class="language-text">我是谁
+任务是什么
+有哪些 Skill
+有哪些 Tool
+</code></pre>
+<p>但它未必已经知道完整的方法论。</p>
+<h4>第二阶段：读取 Skill</h4>
+<p>模型发现需要 cold-start 方法论：</p>
+<pre><code class="language-text">Read(SKILL.md)
+</code></pre>
+<p>然后：</p>
+<pre><code class="language-text">SKILL.md
+ ↓
+Tool Result
+ ↓
+Context
+</code></pre>
+<p>此时模型真正获得：</p>
+<pre><code class="language-text">启动耗时应该怎么定义
+应该观察哪些阶段
+哪些事件属于关键路径
+如何定位瓶颈
+</code></pre>
+<h4>第三阶段：调用 Tool</h4>
+<p>模型继续：</p>
+<pre><code class="language-text">query_trace_sql(...)
+</code></pre>
+<p>工具返回：</p>
+<pre><code class="language-text">Main Thread = 72ms
+TaskRunner = 31ms
+CPU contention = high
+</code></pre>
+<p>这些事实再次进入 Context。</p>
+<h4>第四阶段：模型推理</h4>
+<p>现在模型同时拥有：</p>
+<pre><code class="language-text">Skill
+= 怎么分析
+
+Evidence
+= 本次发生了什么
+
+System Prompt
+= 必须遵守什么规则
+
+User Prompt
+= 用户要解决什么问题
+</code></pre>
+<p>最后才能形成比较完整的分析。</p>
+<hr>
+<h2>24. 最终记忆口诀</h2>
+<pre><code class="language-text">Context：模型看到了什么
+Prompt：告诉模型怎么做
+System：长期规则
+User：当前任务
+Skill：专业方法论
+Tool：外部能力
+Evidence：本次事实
+Memory：历史经验
+MCP：工具生态的标准连接协议
+</code></pre>
+<p>再压缩成一句：</p>
+<blockquote>
+<p><strong>Prompt 管“怎么做”，Skill 提供“专业上怎么做”，Tool 负责“真的去做”，Evidence 提供“做出来的事实”，Memory 提供“以前做过的经验”，Context 则是这一轮模型最终能看到的全部内容；MCP 主要负责把 Agent 与外部工具能力标准化连接起来。</strong></p>
+</blockquote>
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wbhlucky.github.io/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/" data-id="cuid20260926contextmcp" data-title="上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么" class="article-share-link"><span class="fa fa-share">Share</span></a>
+
+
+
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ai-agent/" rel="tag">AI Agent</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" rel="tag">架构分析</a></li></ul>
+
+    </footer>
+  </div>
+
+
+<nav id="article-nav">
+
+    <a href="/2026/09/26/2026-09-26-report-generation-review/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Newer</strong>
+      <div class="article-nav-title">报告自动生成复盘：Agent 出结论，代码出页面</div>
+    </a>
+
+
+    <a href="/2026/09/26/2026-09-26-mcp-protocol-review/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层</div>
+    </a>
+
+
+</nav>
+
+
+</article>
+
+
+</section>
+
+          <aside id="sidebar">
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Categories</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/">AI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E5%88%86%E6%9E%90/">技术分析</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E8%B6%8B%E5%8A%BF/">技术趋势</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">系统架构</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/">职业发展</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/%E6%8A%80%E6%9C%AF%E9%9D%A2%E8%AF%95/">技术面试</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/">软件开发</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/">AI Agents</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/">Software Engineering</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/System-Design/">System Design</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/%E4%BA%BA%E6%9C%BA%E5%8D%8F%E4%BD%9C/">人机协作</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/C/">C++</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/">系统编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/%E9%AB%98%E6%80%A7%E8%83%BD%E6%9C%8D%E5%8A%A1%E5%99%A8/">高性能服务器</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/">GitHub</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/CI-CD/">CI/CD</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/">Jekyll</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/Blogging/">Blogging</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/">Web Automation</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/">Testing</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/Security/">Security</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/">Zotero</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/">API</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/%E9%A1%B9%E7%9B%AE%E5%BC%80%E5%8F%91/">项目开发</a></li></ul></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">架构设计</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/">CLI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/AI%E6%99%BA%E8%83%BD%E4%BD%93/">AI智能体</a></li></ul></li></ul></li></ul></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tags</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI-Native/" rel="tag">AI-Native</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Codex/" rel="tag">Codex</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OpenAI/" rel="tag">OpenAI</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" rel="tag">范式转移</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" rel="tag">软件工程</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tag Cloud</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/AI-Native/" style="font-size: 10px;">AI-Native</a> <a href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" style="font-size: 20px;">AI智能体</a> <a href="/tags/Codex/" style="font-size: 10px;">Codex</a> <a href="/tags/OpenAI/" style="font-size: 10px;">OpenAI</a> <a href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" style="font-size: 10px;">范式转移</a> <a href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" style="font-size: 10px;">软件工程</a>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/">2026</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        <li>
+          <a href="/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/">上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-mcp-protocol-review/">MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-claude-agent-sdk-review/">Claude Agent SDK 技术复盘：模块、Skill、自定义 Tool 与自研边界</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-ditingagent-agent-loop-review/">DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-agent-skill-complete-guide/">Agent Skill 完整理解：从 SKILL.md 到渐进式加载的能力包设计</a>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+
+</aside>
+
+      </div>
+      <footer id="footer">
+
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      <p>&copy; 2026 John Doe<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a></p>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+
+    <a href="/" class="mobile-nav-link">Home</a>
+
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+
+</nav>
+
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  <script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>

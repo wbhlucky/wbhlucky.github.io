@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+
+  <title>MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="从 tools/list 与 tools/call 两个核心方法出发，复盘 MCP 到底标准化了什么：Tool Definition 的关键字段、CallToolResult 里 content 与 structuredContent 的区别、outputSchema 三者的关系、Host / Client / Server 的完整运行链路，以及 MCP 与 LLM Function Calling 的认知边界。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层">
+<meta property="og:url" content="https://wbhlucky.github.io/2026/09/26/2026-09-26-mcp-protocol-review/">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="从 tools/list 与 tools/call 两个核心方法出发，复盘 MCP 到底标准化了什么：Tool Definition 的关键字段、CallToolResult 里 content 与 structuredContent 的区别、outputSchema 三者的关系、Host / Client / Server 的完整运行链路，以及 MCP 与 LLM Function Calling 的认知边界。">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-25T16:00:00.000Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="AI Agent">
+<meta property="article:tag" content="AI智能体">
+<meta property="article:tag" content="架构分析">
+<meta name="twitter:card" content="summary">
+
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+
+
+    <link rel="shortcut icon" href="/favicon.png">
+
+
+
+<link rel="stylesheet" href="/css/style.css">
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+
+          <a class="main-nav-link" href="/">Home</a>
+
+          <a class="main-nav-link" href="/archives">Archives</a>
+
+      </nav>
+      <nav id="sub-nav">
+
+
+          <a class="nav-icon" href="/atom.xml" title="RSS Feed"><span class="fa fa-rss"></span></a>
+
+        <a class="nav-icon nav-search-btn" title="Search"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-2026-09-26-mcp-protocol-review" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/09/26/2026-09-26-mcp-protocol-review/" class="article-date">
+  <time class="dt-published" datetime="2026-09-25T16:00:00.000Z" itemprop="datePublished">2026-09-26</time>
+</a>
+
+  <div class="article-category"><a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a>&#x25BA;<a class="article-category-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a></div>
+
+  </div>
+  <div class="article-inner">
+
+
+      <header class="article-header">
+
+
+    <h1 class="p-name article-title" itemprop="headline name">MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层</h1>
+
+
+      </header>
+
+    <div class="e-content article-entry" itemprop="articleBody">
+<h2>1. MCP 到底标准化了什么</h2>
+<p>MCP 可以先记成一句话：</p>
+<blockquote>
+<p><strong>MCP 标准化了 Host / Client 与 Server 之间如何发现工具、描述工具、调用工具以及返回工具结果。</strong></p>
+</blockquote>
+<p>它不是 LLM 本身的协议，也不是统一所有厂商的原生 Function Calling API。</p>
+<p>最核心的两个方法：</p>
+<pre><code class="language-text">tools/list  -&gt; 我有哪些工具？
+tools/call  -&gt; 执行哪个工具？
+</code></pre>
+<p>可以把它类比成：</p>
+<pre><code class="language-text">Tool List = 菜单
+Tool Call = 点菜
+Tool Result = 上菜
+</code></pre>
+<hr>
+<h2>2. tools/list：工具发现</h2>
+<p><code>tools/list</code> 用来让 MCP Server 告诉 MCP Client：</p>
+<blockquote>
+<p><strong>“我有哪些工具，以及这些工具怎么调用、可能返回什么结构。”</strong></p>
+</blockquote>
+<p>典型 Tool Definition：</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;query_trace_sql&quot;,
+  &quot;description&quot;: &quot;Query trace data using read-only SQL&quot;,
+  &quot;inputSchema&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;properties&quot;: {
+      &quot;sql&quot;: {
+        &quot;type&quot;: &quot;string&quot;
+      },
+      &quot;limit&quot;: {
+        &quot;type&quot;: &quot;integer&quot;
+      }
+    },
+    &quot;required&quot;: [&quot;sql&quot;]
+  },
+  &quot;outputSchema&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;properties&quot;: {
+      &quot;rows&quot;: {
+        &quot;type&quot;: &quot;array&quot;
+      }
+    }
+  }
+}
+</code></pre>
+<h3>Tool Definition 最重要的字段</h3>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>工具名字 / 唯一标识</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>告诉模型这个工具能干什么</td>
+</tr>
+<tr>
+<td><code>inputSchema</code></td>
+<td>规定调用工具时 <code>arguments</code> 应该长什么样</td>
+</tr>
+<tr>
+<td><code>outputSchema</code></td>
+<td>可选；规定结构化工具结果 <code>structuredContent</code> 应该长什么样</td>
+</tr>
+<tr>
+<td><code>title</code> / <code>annotations</code> / <code>icons</code> / <code>_meta</code></td>
+<td>其他可选元数据</td>
+</tr>
+</tbody>
+</table>
+<p>因此：</p>
+<pre><code class="language-text">tools/list
+    ↓
+Tool Definition
+    ├── name
+    ├── description
+    ├── inputSchema
+    └── outputSchema（可选）
+</code></pre>
+<h3>最重要的理解</h3>
+<pre><code class="language-text">inputSchema
+    -&gt; 我怎么调用你？
+
+outputSchema
+    -&gt; 你调用完以后，结构化结果应该是什么形状？
+</code></pre>
+<p>注意：<code>outputSchema</code> 是<strong>契约</strong>，不是实际返回的数据。</p>
+<hr>
+<h2>3. tools/call：真正执行工具</h2>
+<p>当模型通过 Host 决定调用一个工具时，Host / MCP Client 会向 Server 发起 <code>tools/call</code>。</p>
+<p>例如：</p>
+<pre><code class="language-json">{
+  &quot;method&quot;: &quot;tools/call&quot;,
+  &quot;params&quot;: {
+    &quot;name&quot;: &quot;query_trace_sql&quot;,
+    &quot;arguments&quot;: {
+      &quot;sql&quot;: &quot;SELECT * FROM slices LIMIT 20&quot;
+    }
+  }
+}
+</code></pre>
+<p>所以：</p>
+<pre><code class="language-text">tools/list
+    -&gt; “有哪些工具？”
+
+tools/call
+    -&gt; “现在执行这个工具，参数是这些。”
+</code></pre>
+<hr>
+<h2>4. Tool Result / CallToolResult 是什么</h2>
+<p>Server 执行完真正的 Tool 后，会把结果按照 MCP 定义的 <code>CallToolResult</code> 形式返回给 Client。</p>
+<p>核心可以理解为：</p>
+<pre><code class="language-json">{
+  &quot;content&quot;: [
+    {
+      &quot;type&quot;: &quot;text&quot;,
+      &quot;text&quot;: &quot;查询到了 20 条记录&quot;
+    }
+  ],
+  &quot;structuredContent&quot;: {
+    &quot;rows&quot;: [
+      {
+        &quot;ts&quot;: 123,
+        &quot;dur&quot;: 456
+      }
+    ]
+  },
+  &quot;isError&quot;: false
+}
+</code></pre>
+<p>方向是：</p>
+<pre><code class="language-text">MCP Server
+    ↓
+CallToolResult
+    ↓
+MCP Client
+</code></pre>
+<p>它<strong>不是 LLM 的最终回答</strong>，而是 MCP 层的工具执行结果。</p>
+<hr>
+<h2>5. content、structuredContent 到底有什么区别</h2>
+<p>这是最容易混淆的地方。</p>
+<h3>5.1 <code>content</code></h3>
+<p><code>content</code> 是 Tool 执行结果的<strong>可读内容</strong>，主要面向模型消费，也可以被 Host / UI 直接展示。</p>
+<p>例如：</p>
+<pre><code class="language-json">{
+  &quot;content&quot;: [
+    {
+      &quot;type&quot;: &quot;text&quot;,
+      &quot;text&quot;: &quot;RenderThread 是主要 CPU 热点，累计耗时 83ms&quot;
+    }
+  ]
+}
+</code></pre>
+<p>它不是模型自己“推理出来”的。</p>
+<p>而是：</p>
+<pre><code class="language-text">Tool 执行
+    ↓
+Server 拿到真实执行结果
+    ↓
+Server 按自己的逻辑组装成可读内容
+    ↓
+content
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong><code>content</code> 写什么，取决于 MCP Server 的实现逻辑。</strong></p>
+</blockquote>
+<p>它可以是文本，也可以是其他 MCP 支持的内容块。</p>
+<h3>5.2 <code>structuredContent</code></h3>
+<p><code>structuredContent</code> 是 Tool 结果的<strong>结构化 JSON 数据</strong>，主要方便 Host / Client / 前端程序直接解析和消费。</p>
+<p>例如：</p>
+<pre><code class="language-json">{
+  &quot;structuredContent&quot;: {
+    &quot;hotspots&quot;: [
+      {
+        &quot;thread&quot;: &quot;RenderThread&quot;,
+        &quot;duration_ms&quot;: 83
+      }
+    ],
+    &quot;totalDuration&quot;: 120
+  }
+}
+</code></pre>
+<p>程序可以直接：</p>
+<pre><code class="language-python">result[&quot;hotspots&quot;][0][&quot;duration_ms&quot;]
+</code></pre>
+<p>而不需要从自然语言：</p>
+<pre><code class="language-text">“RenderThread 是主要 CPU 热点，累计耗时 83ms”
+</code></pre>
+<p>里再解析数字。</p>
+<h3>5.3 两者不要记成“人 vs LLM”</h3>
+<p>错误理解：</p>
+<pre><code class="language-text">content -&gt; 给人
+structuredContent -&gt; 给 LLM
+</code></pre>
+<p>更准确：</p>
+<pre><code class="language-text">content
+    -&gt; 非结构化 / 可读 / 主要让模型消费
+
+structuredContent
+    -&gt; 结构化 / 主要让 Host、Client、程序、UI 直接消费
+</code></pre>
+<p>前端究竟展示什么，不是 MCP 强制规定的；Host 可以：</p>
+<pre><code class="language-text">只展示 content
+只使用 structuredContent
+两者结合
+</code></pre>
+<hr>
+<h2>6. outputSchema、structuredContent、content 三者关系</h2>
+<p>这是最应该记住的一组关系：</p>
+<pre><code class="language-text">Tool Definition
+    ↓
+outputSchema
+    ↓
+“你应该返回什么结构”
+
+Tool 执行
+    ↓
+structuredContent
+    ↓
+“这一次实际返回的数据”
+
+Tool 执行
+    ↓
+content
+    ↓
+“把这次结果用可读方式表达出来”
+</code></pre>
+<p>所以：</p>
+<pre><code class="language-text">outputSchema = 契约
+structuredContent = 实际结构化数据
+content = 可读表示
+</code></pre>
+<p>最像普通函数里的关系：</p>
+<pre><code class="language-python">def get_temperature(city: str) -&gt; TemperatureResult:
+    ...
+</code></pre>
+<p>对应：</p>
+<pre><code class="language-text">name
+    -&gt; 函数叫什么
+
+description
+    -&gt; 函数干什么
+
+inputSchema
+    -&gt; 参数怎么传
+
+outputSchema
+    -&gt; 返回值是什么结构
+
+structuredContent
+    -&gt; 本次实际返回值
+
+content
+    -&gt; 返回值的可读表达
+</code></pre>
+<p><code>outputSchema</code> 并不是所有工具都必须有，所以有些 Tool 的 Tool List 只有：</p>
+<pre><code class="language-text">name
++ description
++ inputSchema
+</code></pre>
+<p>依然可以正常工作。</p>
+<hr>
+<h2>7. Host / Client / Server 分别是什么</h2>
+<h3>Host</h3>
+<p>Host 是承载整个 AI 应用 / Agent 的主体。</p>
+<p>例如：</p>
+<pre><code class="language-text">Claude Desktop
+Claude Code
+Cursor
+VS Code + AI Agent
+你自己写的 Trace Agent
+</code></pre>
+<p>Host 里面可以有：</p>
+<pre><code class="language-text">Host
+├── LLM
+├── Agent Loop
+├── MCP Client
+├── Context 管理
+├── Tool 调度
+└── 权限控制
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong>Host = 整个 AI 应用 / Agent 宿主。</strong></p>
+</blockquote>
+<h3>MCP Client</h3>
+<p>Client 是 Host 里面负责和某个 MCP Server 建立 MCP 通信的组件。</p>
+<p>一个 Host 可以连接多个 Server：</p>
+<pre><code class="language-text">Host
+├── MCP Client A ── MCP Server A
+├── MCP Client B ── MCP Server B
+└── MCP Client C ── MCP Server C
+</code></pre>
+<p>所以：</p>
+<blockquote>
+<p><strong>Client 不是整个 Agent，而是 Host 中负责 MCP 通信的一端。</strong></p>
+</blockquote>
+<h3>MCP Server</h3>
+<p>Server 是把能力通过 MCP 标准暴露出去的一端。</p>
+<p>例如 Trace Server：</p>
+<pre><code class="language-text">Trace MCP Server
+├── query_trace_sql
+├── get_trace_overview
+├── inspect_cpu
+├── inspect_sched
+└── inspect_render
+</code></pre>
+<p>它负责：</p>
+<pre><code class="language-text">tools/list
+    ↓
+返回 Tool Definition
+
+tools/call
+    ↓
+执行 Tool
+    ↓
+返回 CallToolResult
+</code></pre>
+<p>Server 不需要知道 Host 最终使用的是 Claude、GPT、Gemini 还是其他模型。</p>
+<hr>
+<h2>8. Host / Client / Server 的完整运行链路</h2>
+<p>以 Trace Agent 为例：</p>
+<pre><code class="language-text">                    Host
+        ┌──────────────────────────┐
+        │                          │
+        │     Trace Analysis Agent │
+        │                          │
+        │          LLM             │
+        │           ↑↓             │
+        │       Agent Loop         │
+        │           ↑↓             │
+        │       MCP Client         │
+        └───────────┼──────────────┘
+                    │
+              MCP Protocol
+                    │
+        ┌───────────↓──────────────┐
+        │      MCP Server          │
+        │                          │
+        │  query_trace_sql         │
+        │  inspect_perf_profile    │
+        │  inspect_sched           │
+        └──────────────────────────┘
+</code></pre>
+<p>实际过程：</p>
+<h3>第一步：发现工具</h3>
+<pre><code class="language-text">Client → Server
+        tools/list
+</code></pre>
+<p>Server 返回：</p>
+<pre><code class="language-text">query_trace_sql
+inspect_perf_profile
+inspect_sched
+</code></pre>
+<h3>第二步：Host 把 Tool Definition 提供给模型</h3>
+<pre><code class="language-text">Server
+  ↓
+MCP Client
+  ↓
+Host
+  ↓
+LLM
+</code></pre>
+<p>模型因此知道：</p>
+<pre><code class="language-text">有什么工具
+工具做什么
+需要什么输入
+可选地知道结构化输出长什么样
+</code></pre>
+<h3>第三步：模型决定调用</h3>
+<p>模型在模型侧产生 Tool Calling 意图，例如：</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;query_trace_sql&quot;,
+  &quot;arguments&quot;: {
+    &quot;sql&quot;: &quot;SELECT ...&quot;
+  }
+}
+</code></pre>
+<p>Host / MCP Client 再把它转成 MCP 的：</p>
+<pre><code class="language-json">{
+  &quot;method&quot;: &quot;tools/call&quot;,
+  &quot;params&quot;: {
+    &quot;name&quot;: &quot;query_trace_sql&quot;,
+    &quot;arguments&quot;: {
+      &quot;sql&quot;: &quot;SELECT ...&quot;
+    }
+  }
+}
+</code></pre>
+<h3>第四步：Server 执行</h3>
+<pre><code class="language-text">MCP Server
+    ↓
+query_trace_sql()
+    ↓
+SQLite / Trace 数据
+</code></pre>
+<h3>第五步：Server 返回 Tool Result</h3>
+<pre><code class="language-text">Server
+  ↓
+CallToolResult
+  ↓
+Client
+</code></pre>
+<h3>第六步：Host 把结果送回 Agent Context</h3>
+<pre><code class="language-text">MCP Server
+    ↓
+MCP Client
+    ↓
+Host
+    ↓
+Agent Context
+    ↓
+LLM
+</code></pre>
+<p>模型再根据结果决定：</p>
+<pre><code class="language-text">证据足够 → 继续分析 / 输出结论
+证据不足 → 再调用其他 Tool
+</code></pre>
+<p>因此 MCP Tool Loop 可以理解为：</p>
+<pre><code class="language-text">LLM
+ ↓
+Tool Call 意图
+ ↓
+MCP Client
+ ↓
+tools/call
+ ↓
+MCP Server
+ ↓
+执行 Tool
+ ↓
+CallToolResult
+ ↓
+MCP Client
+ ↓
+Host Context
+ ↓
+LLM
+ ↺
+</code></pre>
+<hr>
+<h2>9. MCP 与 LLM Function Calling 的关系</h2>
+<p>一个非常关键的理解：</p>
+<blockquote>
+<p><strong>MCP 统一的是“工具侧协议”，不是所有 LLM 厂商的原生 Tool Calling API。</strong></p>
+</blockquote>
+<p>例如不同模型供应商可能存在不同的模型接口：</p>
+<pre><code class="language-text">OpenAI API
+Anthropic API
+Gemini API
+DeepSeek API
+...
+</code></pre>
+<p>Host 通常还需要一个 LLM Adapter，把模型侧的 Tool Calling 表达转换成统一的内部 Agent 表达，再由 MCP Client 去调用 MCP Server。</p>
+<p>可以理解成两层：</p>
+<pre><code class="language-text">                 LLM / Model Layer
+                        ↑↓
+               LLM Function Calling
+                        ↑↓
+                     Host
+                        ↑↓
+                  MCP Client
+                        ↑↓
+                  MCP Protocol
+                        ↑↓
+                  MCP Server
+                        ↑↓
+                      Tool
+</code></pre>
+<p>所以 MCP 并不是：</p>
+<pre><code class="language-text">“让所有 LLM API 都变成一样”
+</code></pre>
+<p>而是：</p>
+<pre><code class="language-text">“让工具提供侧和工具调用侧之间有统一的标准协议”
+</code></pre>
+<hr>
+<h2>10. 一张最值得记住的总表</h2>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>一句话理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Host</td>
+<td>整个 AI 应用 / Agent 宿主</td>
+</tr>
+<tr>
+<td>MCP Client</td>
+<td>Host 中负责连接 MCP Server 的协议组件</td>
+</tr>
+<tr>
+<td>MCP Server</td>
+<td>对外暴露 Tools / Resources / Prompts 等能力的一端</td>
+</tr>
+<tr>
+<td><code>tools/list</code></td>
+<td>“你有哪些工具？”</td>
+</tr>
+<tr>
+<td>Tool Definition</td>
+<td>工具说明书：<code>name + description + inputSchema + 可选 outputSchema</code></td>
+</tr>
+<tr>
+<td><code>tools/call</code></td>
+<td>“执行这个工具，并传这些参数。”</td>
+</tr>
+<tr>
+<td><code>CallToolResult</code></td>
+<td>Server 执行 Tool 后返回给 Client 的标准工具结果</td>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>可读的 Tool 结果，主要供模型消费，也可被 UI 展示</td>
+</tr>
+<tr>
+<td><code>structuredContent</code></td>
+<td>结构化的 Tool 结果，主要供 Host / Client / 程序直接解析</td>
+</tr>
+<tr>
+<td><code>outputSchema</code></td>
+<td><code>structuredContent</code> 的输出契约</td>
+</tr>
+<tr>
+<td><code>isError</code></td>
+<td>本次 Tool 调用是否发生工具级错误</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>Host / Client ↔ Server 之间的标准通信协议</td>
+</tr>
+<tr>
+<td>LLM Function Calling</td>
+<td>模型 ↔ Host 之间的模型侧工具调用接口</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>11. 最终记忆版</h2>
+<h3>Tool 发现</h3>
+<pre><code class="language-text">tools/list
+    ↓
+“我有哪些工具？”
+</code></pre>
+<h3>Tool 定义</h3>
+<pre><code class="language-text">name
+    → 工具叫什么
+
+description
+    → 工具干什么
+
+inputSchema
+    → 调用时参数怎么传
+
+outputSchema
+    → 返回的 structuredContent 应该是什么结构
+</code></pre>
+<h3>Tool 调用</h3>
+<pre><code class="language-text">tools/call
+    ↓
+“现在执行这个工具，参数是这些。”
+</code></pre>
+<h3>Tool 返回</h3>
+<pre><code class="language-text">CallToolResult
+├── content
+│   └── 可读 / 主要让模型消费
+│
+├── structuredContent
+│   └── 结构化 / 主要让程序消费
+│
+└── isError
+    └── 是否发生工具级错误
+</code></pre>
+<h3>三者最核心的关系</h3>
+<pre><code class="language-text">outputSchema = 契约
+structuredContent = 实际结构化数据
+content = 可读表示
+</code></pre>
+<h3>MCP 的核心链路</h3>
+<pre><code class="language-text">Server
+   │
+   │ tools/list
+   ↓
+Client
+   ↓
+Host
+   ↓
+LLM
+   │
+   │ Tool Call 意图
+   ↓
+Host / Client
+   │
+   │ tools/call
+   ↓
+Server
+   ↓
+Tool
+   ↓
+CallToolResult
+   ↓
+Client
+   ↓
+Host Context
+   ↓
+LLM
+</code></pre>
+<hr>
+<h2>12. 一个最终的认知边界</h2>
+<p>最容易混淆的是三个层次：</p>
+<pre><code class="language-text">① LLM 层
+   模型决定：我要不要调用工具？调用哪个工具？参数是什么？
+
+② MCP 层
+   标准化：工具怎么发现、怎么调用、结果怎么返回。
+
+③ Tool 实现层
+   真正执行 SQL、读文件、查 Trace、调用 API 等业务逻辑。
+</code></pre>
+<p>因此：</p>
+<blockquote>
+<p><strong>MCP 不负责“推理”，MCP 负责把模型想调用的外部能力，以统一协议连接起来。</strong></p>
+</blockquote>
+<hr>
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wbhlucky.github.io/2026/09/26/2026-09-26-mcp-protocol-review/" data-id="cuid20260926mcp" data-title="MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层" class="article-share-link"><span class="fa fa-share">Share</span></a>
+
+
+
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ai-agent/" rel="tag">AI Agent</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" rel="tag">架构分析</a></li></ul>
+
+    </footer>
+  </div>
+
+
+<nav id="article-nav">
+
+    <a href="/2026/09/26/2026-09-26-context-prompt-skill-mcp-review/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Newer</strong>
+      <div class="article-nav-title">上下文、提示词、Skill 与 MCP 复盘：模型这一轮到底看到了什么</div>
+    </a>
+
+
+    <a href="/2026/09/26/2026-09-26-claude-agent-sdk-review/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">Claude Agent SDK 技术复盘：模块、Skill、自定义 Tool 与自研边界</div>
+    </a>
+
+
+</nav>
+
+
+</article>
+
+
+</section>
+
+          <aside id="sidebar">
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Categories</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/">AI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/">工程实践</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E5%88%86%E6%9E%90/">技术分析</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/%E6%8A%80%E6%9C%AF%E8%B6%8B%E5%8A%BF/">技术趋势</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">系统架构</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/">职业发展</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%81%8C%E4%B8%9A%E5%8F%91%E5%B1%95/%E6%8A%80%E6%9C%AF%E9%9D%A2%E8%AF%95/">技术面试</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/">软件开发</a></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/">AI Agents</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/">Software Engineering</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI-Agents/Software-Engineering/System-Design/">System Design</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/">AI编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/">软件架构</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/AI%E7%BC%96%E7%A8%8B/%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84/%E4%BA%BA%E6%9C%BA%E5%8D%8F%E4%BD%9C/">人机协作</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/C/">C++</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/">系统编程</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/C/%E7%B3%BB%E7%BB%9F%E7%BC%96%E7%A8%8B/%E9%AB%98%E6%80%A7%E8%83%BD%E6%9C%8D%E5%8A%A1%E5%99%A8/">高性能服务器</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/">GitHub</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/GitHub/DevOps/CI-CD/">CI/CD</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/">Jekyll</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/">DevOps</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Jekyll/DevOps/Blogging/">Blogging</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/">Web Automation</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/">Testing</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Web-Automation/Testing/Security/">Security</a></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/">Zotero</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/">API</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/Zotero/%E8%87%AA%E5%8A%A8%E5%8C%96/API/%E9%A1%B9%E7%9B%AE%E5%BC%80%E5%8F%91/">项目开发</a></li></ul></li></ul></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">架构设计</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/">自动化</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/">CLI</a><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/%E8%87%AA%E5%8A%A8%E5%8C%96/CLI/AI%E6%99%BA%E8%83%BD%E4%BD%93/">AI智能体</a></li></ul></li></ul></li></ul></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tags</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI-Native/" rel="tag">AI-Native</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" rel="tag">AI智能体</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Codex/" rel="tag">Codex</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OpenAI/" rel="tag">OpenAI</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" rel="tag">范式转移</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" rel="tag">软件工程</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tag Cloud</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/AI-Native/" style="font-size: 10px;">AI-Native</a> <a href="/tags/AI%E6%99%BA%E8%83%BD%E4%BD%93/" style="font-size: 20px;">AI智能体</a> <a href="/tags/Codex/" style="font-size: 10px;">Codex</a> <a href="/tags/OpenAI/" style="font-size: 10px;">OpenAI</a> <a href="/tags/%E8%8C%83%E5%BC%8F%E8%BD%AC%E7%A7%BB/" style="font-size: 10px;">范式转移</a> <a href="/tags/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/" style="font-size: 10px;">软件工程</a>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/">2026</a></li></ul>
+    </div>
+  </div>
+
+
+
+
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        <li>
+          <a href="/2026/09/26/2026-09-26-mcp-protocol-review/">MCP 复盘：tools/list、tools/call 与协议真正标准化的那一层</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-claude-agent-sdk-review/">Claude Agent SDK 技术复盘：模块、Skill、自定义 Tool 与自研边界</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-ditingagent-agent-loop-review/">DitingAgent Agent Loop 复盘：用确定性工作流包住 SDK Agent Loop</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/09/26/2026-09-26-agent-skill-complete-guide/">Agent Skill 完整理解：从 SKILL.md 到渐进式加载的能力包设计</a>
+        </li>
+
+
+        <li>
+          <a href="/2026/06/20/2026-06-20-ai-harness-engineering/">AI 编码智能体的工作环境保护框架工程：从入门到顶点项目</a>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+
+</aside>
+
+      </div>
+      <footer id="footer">
+
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      <p>&copy; 2026 John Doe<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a></p>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+
+    <a href="/" class="mobile-nav-link">Home</a>
+
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+
+</nav>
+
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+  <script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>
